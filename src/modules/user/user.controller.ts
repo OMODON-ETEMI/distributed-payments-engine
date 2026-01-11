@@ -21,21 +21,21 @@ export class UserController {
                 }
             })
 
-        //     if (karmaResponse.status !== 404) {
+            if (karmaResponse.status !== 404) {
 
-        //         if (karmaResponse.ok) {
-        //             const errorData = await karmaResponse.json() as KarmaResponse;
+                if (karmaResponse.ok) {
+                    const errorData = await karmaResponse.json() as KarmaResponse;
                     
 
-        //             if (errorData.data && errorData.status === 'success') {
-        //                 return res.status(403).json({
-        //                     status: 'error',
-        //                     message: 'User is blacklisted and cannot be onboarded.',
-        //                     reason: errorData.message 
-        //                 });
-        //             }
-        //         }
-        // }
+                    if (errorData.data && errorData.status === 'success') {
+                        return res.status(403).json({
+                            status: 'error',
+                            message: 'User is blacklisted and cannot be onboarded.',
+                            reason: errorData.message 
+                        });
+                    }
+                }
+        }
             const result = await this.userService.createUser({
                 first_name,
                 last_name,
