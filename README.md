@@ -1256,7 +1256,7 @@ Need help setting up or have questions?
 
 <div align="center">
 
-**Built with ❤️ by Oritsetemi for Lendsqr**
+**Built with ❤️ by Oritsetemi**
 
 ⭐ Star this repo if you found it helpful!
 
