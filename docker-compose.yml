@@ -1,29 +1,56 @@
 
 services:
-  mysql:
-    image: mysql:8.0
-    container_name: lendsqr_mysql
+  postgres:
+    image: postgres:16
+    container_name: payment_db
     restart: unless-stopped
     environment:
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
-      MYSQL_DATABASE: ${DB_NAME}
-      MYSQL_USER: ${DB_USER}
-      MYSQL_PASSWORD: ${DB_PASSWORD}
-
-
-  api:
-    build: .
-    container_name: lendsqr_backend
-    command: npm run dev
+      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    ports: 
+      - "5432:5432"
     volumes:
-      - .:/usr/src/app
-      - /usr/src/app/node_modules
-    ports:
-      - "3000:3000"
-    env_file:
-      - .env
+      - distributed_financial_ledger:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  migrate:
+    image: migrate/migrate
+    container_name: payment_db_migrate
+    volumes:
+      - ./src/database/migrations:/migrations
+    command: [
+      "-path",
+      "/migrations",
+      "-database",
+      "postgres://${DB_USER}:${DB_PASSWORD}@postgres:5432/payment_db?sslmode=disable",
+      "up"
+    ]
     depends_on:
-      - mysql
+      postgres:
+        condition: service_healthy
 
 volumes:
-  mysql_data:
+  distributed_financial_ledger:
+
+
+#   api:
+#     build: .
+#     container_name: lendsqr_backend
+#     command: npm run dev
+#     volumes:
+#       - .:/usr/src/app
+#       - /usr/src/app/node_modules
+#     ports:
+#       - "3000:3000"
+#     env_file:
+#       - .env
+#     depends_on:
+#       - mysql
+
+# volumes:
+#   mysql_data:

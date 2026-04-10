@@ -42,7 +42,7 @@ SELECT
     c.id,
     'system_cash_ngn',
     '0000000001',
-    'asset',
+    'system',
     'active',
     'NGN',
     'debit',
@@ -70,7 +70,7 @@ SELECT
     c.id,
     'system_settlement_ngn',
     '0000000002',
-    'liability',
+    'settlement',
     'active',
     'NGN',
     'credit',
@@ -98,7 +98,7 @@ SELECT
     c.id,
     'system_fee_revenue_ngn',
     '0000000003',
-    'revenue',
+    'fee',
     'active',
     'NGN',
     'credit',
@@ -108,34 +108,6 @@ FROM customers c
 WHERE c.external_ref = 'system_customer'
 AND NOT EXISTS (
     SELECT 1 FROM accounts WHERE external_ref = 'system_fee_revenue_ngn'
-);
-
--- SUSPENSE ACCOUNT
-INSERT INTO accounts (
-    customer_id,
-    external_ref,
-    account_number,
-    account_type,
-    status,
-    currency_code,
-    ledger_normal_side,
-    metadata,
-    opened_at
-)
-SELECT
-    c.id,
-    'system_suspense_ngn',
-    '0000000004',
-    'liability',
-    'active',
-    'NGN',
-    'credit',
-    '{}'::jsonb,
-    now()
-FROM customers c
-WHERE c.external_ref = 'system_customer'
-AND NOT EXISTS (
-    SELECT 1 FROM accounts WHERE external_ref = 'system_suspense_ngn'
 );
 
 -- EXTERNAL BANK ACCOUNT
@@ -154,7 +126,7 @@ SELECT
     c.id,
     'external_bank_ngn',
     '0000000005',
-    'asset',
+    'customer',
     'active',
     'NGN',
     'debit',
