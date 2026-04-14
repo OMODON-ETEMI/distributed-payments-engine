@@ -1,8 +1,0 @@
-export interface Wallet {
-  id: string;
-  user_id: string;
-  balance: string;
-  currency: string;
-  created_at: Date;
-  updated_at: Date;
-}
