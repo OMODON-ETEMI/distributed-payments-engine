@@ -20,28 +20,28 @@ RETURNING id, journal_transaction_id, line_number, account_id, side, amount, cur
 `
 
 type CreateJournalLineParams struct {
-	Column1 pgtype.UUID    `json:"column_1"`
-	Column2 int32          `json:"column_2"`
-	Column3 pgtype.UUID    `json:"column_3"`
-	Column4 interface{}    `json:"column_4"`
-	Column5 pgtype.Numeric `json:"column_5"`
-	Column6 string         `json:"column_6"`
-	Column7 interface{}    `json:"column_7"`
-	Memo    pgtype.Text    `json:"memo"`
-	Column9 []byte         `json:"column_9"`
+	JournalTransactionID pgtype.UUID    `json:"journal_transaction_id"`
+	LineNumber           int32          `json:"line_number"`
+	AccountID            pgtype.UUID    `json:"account_id"`
+	Side                 string         `json:"side"`
+	Amount               pgtype.Numeric `json:"amount"`
+	CurrencyCode         string         `json:"currency_code"`
+	BalanceKind          string         `json:"balance_kind"`
+	Memo                 pgtype.Text    `json:"memo"`
+	Metadata             []byte         `json:"metadata"`
 }
 
 func (q *Queries) CreateJournalLine(ctx context.Context, arg CreateJournalLineParams) (JournalLine, error) {
 	row := q.db.QueryRow(ctx, createJournalLine,
-		arg.Column1,
-		arg.Column2,
-		arg.Column3,
-		arg.Column4,
-		arg.Column5,
-		arg.Column6,
-		arg.Column7,
+		arg.JournalTransactionID,
+		arg.LineNumber,
+		arg.AccountID,
+		arg.Side,
+		arg.Amount,
+		arg.CurrencyCode,
+		arg.BalanceKind,
 		arg.Memo,
-		arg.Column9,
+		arg.Metadata,
 	)
 	var i JournalLine
 	err := row.Scan(
@@ -70,33 +70,33 @@ RETURNING id, transaction_ref, transfer_request_id, idempotency_key_id, status, 
 `
 
 type CreateJournalTransactionParams struct {
-	TransactionRef string             `json:"transaction_ref"`
-	Column2        pgtype.UUID        `json:"column_2"`
-	Column3        pgtype.UUID        `json:"column_3"`
-	Column4        interface{}        `json:"column_4"`
-	EntryType      string             `json:"entry_type"`
-	Column6        pgtype.Date        `json:"column_6"`
-	Column7        pgtype.Timestamptz `json:"column_7"`
-	SourceSystem   string             `json:"source_system"`
-	SourceEventID  pgtype.Text        `json:"source_event_id"`
-	Description    pgtype.Text        `json:"description"`
-	Column11       []byte             `json:"column_11"`
+	TransactionRef    string             `json:"transaction_ref"`
+	TransferRequestID pgtype.UUID        `json:"transfer_request_id"`
+	IdempotencyKeyID  pgtype.UUID        `json:"idempotency_key_id"`
+	Status            string             `json:"status"`
+	EntryType         string             `json:"entry_type"`
+	AccountingDate    pgtype.Date        `json:"accounting_date"`
+	EffectiveAt       pgtype.Timestamptz `json:"effective_at"`
+	SourceSystem      string             `json:"source_system"`
+	SourceEventID     pgtype.Text        `json:"source_event_id"`
+	Description       pgtype.Text        `json:"description"`
+	Metadata          []byte             `json:"metadata"`
 }
 
 // Journal transactions & lines
 func (q *Queries) CreateJournalTransaction(ctx context.Context, arg CreateJournalTransactionParams) (JournalTransaction, error) {
 	row := q.db.QueryRow(ctx, createJournalTransaction,
 		arg.TransactionRef,
-		arg.Column2,
-		arg.Column3,
-		arg.Column4,
+		arg.TransferRequestID,
+		arg.IdempotencyKeyID,
+		arg.Status,
 		arg.EntryType,
-		arg.Column6,
-		arg.Column7,
+		arg.AccountingDate,
+		arg.EffectiveAt,
 		arg.SourceSystem,
 		arg.SourceEventID,
 		arg.Description,
-		arg.Column11,
+		arg.Metadata,
 	)
 	var i JournalTransaction
 	err := row.Scan(
@@ -156,8 +156,8 @@ const listJournalLinesForTransaction = `-- name: ListJournalLinesForTransaction 
 SELECT id, journal_transaction_id, line_number, account_id, side, amount, currency_code, balance_kind, memo, metadata, created_at FROM journal_lines WHERE journal_transaction_id = $1::uuid ORDER BY line_number ASC
 `
 
-func (q *Queries) ListJournalLinesForTransaction(ctx context.Context, dollar_1 pgtype.UUID) ([]JournalLine, error) {
-	rows, err := q.db.Query(ctx, listJournalLinesForTransaction, dollar_1)
+func (q *Queries) ListJournalLinesForTransaction(ctx context.Context, journalTransactionID pgtype.UUID) ([]JournalLine, error) {
+	rows, err := q.db.Query(ctx, listJournalLinesForTransaction, journalTransactionID)
 	if err != nil {
 		return nil, err
 	}
@@ -192,8 +192,8 @@ const markJournalTransactionPosted = `-- name: MarkJournalTransactionPosted :one
 UPDATE journal_transactions SET status = 'posted', posted_at = now() WHERE id = $1::uuid AND status <> 'posted' RETURNING id, transaction_ref, transfer_request_id, idempotency_key_id, status, entry_type, accounting_date, effective_at, posted_at, reversed_transaction_id, reversal_of_transaction_id, source_system, source_event_id, description, metadata, created_at, updated_at, deleted_at
 `
 
-func (q *Queries) MarkJournalTransactionPosted(ctx context.Context, dollar_1 pgtype.UUID) (JournalTransaction, error) {
-	row := q.db.QueryRow(ctx, markJournalTransactionPosted, dollar_1)
+func (q *Queries) MarkJournalTransactionPosted(ctx context.Context, id pgtype.UUID) (JournalTransaction, error) {
+	row := q.db.QueryRow(ctx, markJournalTransactionPosted, id)
 	var i JournalTransaction
 	err := row.Scan(
 		&i.ID,

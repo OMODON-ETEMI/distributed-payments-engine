@@ -12,3 +12,28 @@ sql:
         emit_json_tags: true
         emit_prepared_queries: true
         emit_interface: true
+        overrides:
+          - db_type: "customer_status"
+            go_type: "string"
+          - db_type: "account_type"
+            go_type: "string"
+          - db_type: "account_status"
+            go_type: "string"
+          - db_type: "transfer_request_status"
+            go_type: "string"
+          - db_type: "journal_transaction_status"
+            go_type: "string"
+          - db_type: "journal_line_side"
+            go_type: "string"
+          - db_type: "hold_status"
+            go_type: "string"
+          - db_type: "outbox_status"
+            go_type: "string"
+          - db_type: "audit_action"
+            go_type: "string"
+          - db_type: "reconciliation_status"
+            go_type: "string"
+          - db_type: "reconciliation_item_status"
+            go_type: "string"
+          - db_type: "ledger_balance_kind"
+            go_type: "string"

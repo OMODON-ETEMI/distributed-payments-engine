@@ -21,31 +21,31 @@ RETURNING id, idempotency_key_id, customer_id, source_account_id, destination_ac
 `
 
 type CreateTransferRequestParams struct {
-	Column1           pgtype.UUID    `json:"column_1"`
-	Column2           pgtype.UUID    `json:"column_2"`
-	Column3           pgtype.UUID    `json:"column_3"`
-	Column4           pgtype.UUID    `json:"column_4"`
-	Column5           string         `json:"column_5"`
-	Column6           pgtype.Numeric `json:"column_6"`
-	Column7           pgtype.Numeric `json:"column_7"`
-	ClientReference   pgtype.Text    `json:"client_reference"`
-	ExternalReference pgtype.Text    `json:"external_reference"`
-	Column10          []byte         `json:"column_10"`
+	IdempotencyKeyID     pgtype.UUID    `json:"idempotency_key_id"`
+	CustomerID           pgtype.UUID    `json:"customer_id"`
+	SourceAccountID      pgtype.UUID    `json:"source_account_id"`
+	DestinationAccountID pgtype.UUID    `json:"destination_account_id"`
+	CurrencyCode         string         `json:"currency_code"`
+	Amount               pgtype.Numeric `json:"amount"`
+	FeeAmount            pgtype.Numeric `json:"fee_amount"`
+	ClientReference      pgtype.Text    `json:"client_reference"`
+	ExternalReference    pgtype.Text    `json:"external_reference"`
+	Metadata             []byte         `json:"metadata"`
 }
 
 // Transfer request queries
 func (q *Queries) CreateTransferRequest(ctx context.Context, arg CreateTransferRequestParams) (TransferRequest, error) {
 	row := q.db.QueryRow(ctx, createTransferRequest,
-		arg.Column1,
-		arg.Column2,
-		arg.Column3,
-		arg.Column4,
-		arg.Column5,
-		arg.Column6,
-		arg.Column7,
+		arg.IdempotencyKeyID,
+		arg.CustomerID,
+		arg.SourceAccountID,
+		arg.DestinationAccountID,
+		arg.CurrencyCode,
+		arg.Amount,
+		arg.FeeAmount,
 		arg.ClientReference,
 		arg.ExternalReference,
-		arg.Column10,
+		arg.Metadata,
 	)
 	var i TransferRequest
 	err := row.Scan(
@@ -82,8 +82,8 @@ const getTransferRequestByID = `-- name: GetTransferRequestByID :one
 SELECT id, idempotency_key_id, customer_id, source_account_id, destination_account_id, currency_code, amount, fee_amount, status, client_reference, external_reference, failure_code, failure_reason, metadata, requested_at, reserved_at, submitted_at, posted_at, rejected_at, cancelled_at, expired_at, failed_at, created_at, updated_at, deleted_at FROM transfer_requests WHERE id = $1::uuid LIMIT 1
 `
 
-func (q *Queries) GetTransferRequestByID(ctx context.Context, dollar_1 pgtype.UUID) (TransferRequest, error) {
-	row := q.db.QueryRow(ctx, getTransferRequestByID, dollar_1)
+func (q *Queries) GetTransferRequestByID(ctx context.Context, id pgtype.UUID) (TransferRequest, error) {
+	row := q.db.QueryRow(ctx, getTransferRequestByID, id)
 	var i TransferRequest
 	err := row.Scan(
 		&i.ID,
@@ -119,8 +119,8 @@ const getTransferRequestByIdempotencyKey = `-- name: GetTransferRequestByIdempot
 SELECT id, idempotency_key_id, customer_id, source_account_id, destination_account_id, currency_code, amount, fee_amount, status, client_reference, external_reference, failure_code, failure_reason, metadata, requested_at, reserved_at, submitted_at, posted_at, rejected_at, cancelled_at, expired_at, failed_at, created_at, updated_at, deleted_at FROM transfer_requests WHERE idempotency_key_id = $1::uuid LIMIT 1
 `
 
-func (q *Queries) GetTransferRequestByIdempotencyKey(ctx context.Context, dollar_1 pgtype.UUID) (TransferRequest, error) {
-	row := q.db.QueryRow(ctx, getTransferRequestByIdempotencyKey, dollar_1)
+func (q *Queries) GetTransferRequestByIdempotencyKey(ctx context.Context, idempotencyKeyID pgtype.UUID) (TransferRequest, error) {
+	row := q.db.QueryRow(ctx, getTransferRequestByIdempotencyKey, idempotencyKeyID)
 	var i TransferRequest
 	err := row.Scan(
 		&i.ID,
@@ -153,17 +153,17 @@ func (q *Queries) GetTransferRequestByIdempotencyKey(ctx context.Context, dollar
 }
 
 const listTransferRequestsByCustomer = `-- name: ListTransferRequestsByCustomer :many
-SELECT id, idempotency_key_id, customer_id, source_account_id, destination_account_id, currency_code, amount, fee_amount, status, client_reference, external_reference, failure_code, failure_reason, metadata, requested_at, reserved_at, submitted_at, posted_at, rejected_at, cancelled_at, expired_at, failed_at, created_at, updated_at, deleted_at FROM transfer_requests WHERE customer_id = $1::uuid ORDER BY created_at DESC LIMIT $2 OFFSET $3
+SELECT id, idempotency_key_id, customer_id, source_account_id, destination_account_id, currency_code, amount, fee_amount, status, client_reference, external_reference, failure_code, failure_reason, metadata, requested_at, reserved_at, submitted_at, posted_at, rejected_at, cancelled_at, expired_at, failed_at, created_at, updated_at, deleted_at FROM transfer_requests WHERE customer_id = $3::uuid ORDER BY created_at DESC LIMIT $1 OFFSET $2
 `
 
 type ListTransferRequestsByCustomerParams struct {
-	Column1 pgtype.UUID `json:"column_1"`
-	Limit   int32       `json:"limit"`
-	Offset  int32       `json:"offset"`
+	Limit      int32       `json:"limit"`
+	Offset     int32       `json:"offset"`
+	CustomerID pgtype.UUID `json:"customer_id"`
 }
 
 func (q *Queries) ListTransferRequestsByCustomer(ctx context.Context, arg ListTransferRequestsByCustomerParams) ([]TransferRequest, error) {
-	rows, err := q.db.Query(ctx, listTransferRequestsByCustomer, arg.Column1, arg.Limit, arg.Offset)
+	rows, err := q.db.Query(ctx, listTransferRequestsByCustomer, arg.Limit, arg.Offset, arg.CustomerID)
 	if err != nil {
 		return nil, err
 	}
@@ -210,19 +210,19 @@ func (q *Queries) ListTransferRequestsByCustomer(ctx context.Context, arg ListTr
 
 const updateTransferRequestStatus = `-- name: UpdateTransferRequestStatus :one
 UPDATE transfer_requests
-SET status = $2::transfer_request_status,
-    posted_at = CASE WHEN $2::transfer_request_status = 'posted' THEN now() ELSE posted_at END
-WHERE id = $1::uuid
+SET status = $1::transfer_request_status,
+    posted_at = CASE WHEN $1::transfer_request_status = 'posted' THEN now() ELSE posted_at END
+WHERE id = $2::uuid
 RETURNING id, idempotency_key_id, customer_id, source_account_id, destination_account_id, currency_code, amount, fee_amount, status, client_reference, external_reference, failure_code, failure_reason, metadata, requested_at, reserved_at, submitted_at, posted_at, rejected_at, cancelled_at, expired_at, failed_at, created_at, updated_at, deleted_at
 `
 
 type UpdateTransferRequestStatusParams struct {
-	Column1 pgtype.UUID `json:"column_1"`
-	Column2 interface{} `json:"column_2"`
+	Status string      `json:"status"`
+	ID     pgtype.UUID `json:"id"`
 }
 
 func (q *Queries) UpdateTransferRequestStatus(ctx context.Context, arg UpdateTransferRequestStatusParams) (TransferRequest, error) {
-	row := q.db.QueryRow(ctx, updateTransferRequestStatus, arg.Column1, arg.Column2)
+	row := q.db.QueryRow(ctx, updateTransferRequestStatus, arg.Status, arg.ID)
 	var i TransferRequest
 	err := row.Scan(
 		&i.ID,

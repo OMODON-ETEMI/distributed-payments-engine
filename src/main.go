@@ -1,26 +1,44 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
 
-	"github.com/OMODON-ETEMI/distributed-payments-engine/routes"
+	_ "github.com/OMODON-ETEMI/distributed-payments-engine/docs"
+	db "github.com/OMODON-ETEMI/distributed-payments-engine/src/database/gen"
+	"github.com/OMODON-ETEMI/distributed-payments-engine/src/routes"
 	"github.com/go-chi/chi"
 	"github.com/go-chi/cors"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
+	_ "github.com/lib/pq"
 )
 
 func main() {
-	fmt.Println("Hello world")
-
 	godotenv.Load("../.env")
 
 	portString := os.Getenv("PORT")
-
 	if portString == "" {
 		log.Fatal("PORT is not found in the enviroment")
+	}
+
+	dbUrl := os.Getenv("DB_URL")
+	if dbUrl == "" {
+		log.Fatal("DB_URL is not found in the enviroment")
+	}
+
+	ctx := context.Background()
+	connPool, err := pgxpool.New(ctx, dbUrl)
+	if err != nil {
+		log.Fatal("Unable to connect to database:", err)
+	}
+	defer connPool.Close()
+
+	api := &routes.ApiConfig{
+		Db: db.New(connPool),
 	}
 
 	router := chi.NewRouter()
@@ -37,6 +55,11 @@ func main() {
 	v1Router := chi.NewRouter()
 	v1Router.Get("/healthz", routes.HandleReadiness)
 	v1Router.Get("/err", routes.HandleError)
+	v1Router.Post("/create/user", api.HandleCreateUser)
+	v1Router.Post("/get/user/external_ref", api.HandleGetUserByExternalRef)
+	v1Router.Post("/get/user/id", api.HandleGetUserById)
+	v1Router.Post("/list/users", api.HandleListCustomers)
+	v1Router.Post("/update/user", api.HandleUserUpdateStatus)
 	router.Mount("/v1", v1Router)
 
 	srv := &http.Server{
@@ -45,7 +68,7 @@ func main() {
 	}
 
 	log.Printf("Server starting on port %v", portString)
-	err := srv.ListenAndServe()
+	err = srv.ListenAndServe()
 	if err != nil {
 		log.Fatal(err)
 	}

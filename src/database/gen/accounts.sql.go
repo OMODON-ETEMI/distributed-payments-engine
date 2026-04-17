@@ -21,29 +21,29 @@ RETURNING id, customer_id, external_ref, account_number, account_type, status, c
 `
 
 type CreateAccountParams struct {
-	Column1       pgtype.UUID        `json:"column_1"`
-	ExternalRef   string             `json:"external_ref"`
-	AccountNumber string             `json:"account_number"`
-	Column4       interface{}        `json:"column_4"`
-	Column5       interface{}        `json:"column_5"`
-	Column6       string             `json:"column_6"`
-	Column7       interface{}        `json:"column_7"`
-	Column8       []byte             `json:"column_8"`
-	Column9       pgtype.Timestamptz `json:"column_9"`
+	CustomerID       pgtype.UUID        `json:"customer_id"`
+	ExternalRef      string             `json:"external_ref"`
+	AccountNumber    string             `json:"account_number"`
+	AccountType      string             `json:"account_type"`
+	Status           string             `json:"status"`
+	CurrencyCode     string             `json:"currency_code"`
+	LedgerNormalSide string             `json:"ledger_normal_side"`
+	Metadata         []byte             `json:"metadata"`
+	OpenedAt         pgtype.Timestamptz `json:"opened_at"`
 }
 
 // Accounts queries
 func (q *Queries) CreateAccount(ctx context.Context, arg CreateAccountParams) (Account, error) {
 	row := q.db.QueryRow(ctx, createAccount,
-		arg.Column1,
+		arg.CustomerID,
 		arg.ExternalRef,
 		arg.AccountNumber,
-		arg.Column4,
-		arg.Column5,
-		arg.Column6,
-		arg.Column7,
-		arg.Column8,
-		arg.Column9,
+		arg.AccountType,
+		arg.Status,
+		arg.CurrencyCode,
+		arg.LedgerNormalSide,
+		arg.Metadata,
+		arg.OpenedAt,
 	)
 	var i Account
 	err := row.Scan(
@@ -95,8 +95,8 @@ const getAccountByID = `-- name: GetAccountByID :one
 SELECT id, customer_id, external_ref, account_number, account_type, status, currency_code, ledger_normal_side, metadata, opened_at, closed_at, created_at, updated_at, deleted_at FROM accounts WHERE id = $1::uuid LIMIT 1
 `
 
-func (q *Queries) GetAccountByID(ctx context.Context, dollar_1 pgtype.UUID) (Account, error) {
-	row := q.db.QueryRow(ctx, getAccountByID, dollar_1)
+func (q *Queries) GetAccountByID(ctx context.Context, id pgtype.UUID) (Account, error) {
+	row := q.db.QueryRow(ctx, getAccountByID, id)
 	var i Account
 	err := row.Scan(
 		&i.ID,
@@ -144,17 +144,17 @@ func (q *Queries) GetAccountByNumber(ctx context.Context, accountNumber string) 
 }
 
 const listAccountsByCustomer = `-- name: ListAccountsByCustomer :many
-SELECT id, customer_id, external_ref, account_number, account_type, status, currency_code, ledger_normal_side, metadata, opened_at, closed_at, created_at, updated_at, deleted_at FROM accounts WHERE customer_id = $1::uuid ORDER BY created_at DESC LIMIT $2 OFFSET $3
+SELECT id, customer_id, external_ref, account_number, account_type, status, currency_code, ledger_normal_side, metadata, opened_at, closed_at, created_at, updated_at, deleted_at FROM accounts WHERE customer_id = $3::uuid ORDER BY created_at DESC LIMIT $1 OFFSET $2
 `
 
 type ListAccountsByCustomerParams struct {
-	Column1 pgtype.UUID `json:"column_1"`
-	Limit   int32       `json:"limit"`
-	Offset  int32       `json:"offset"`
+	Limit      int32       `json:"limit"`
+	Offset     int32       `json:"offset"`
+	CustomerID pgtype.UUID `json:"customer_id"`
 }
 
 func (q *Queries) ListAccountsByCustomer(ctx context.Context, arg ListAccountsByCustomerParams) ([]Account, error) {
-	rows, err := q.db.Query(ctx, listAccountsByCustomer, arg.Column1, arg.Limit, arg.Offset)
+	rows, err := q.db.Query(ctx, listAccountsByCustomer, arg.Limit, arg.Offset, arg.CustomerID)
 	if err != nil {
 		return nil, err
 	}
@@ -189,17 +189,17 @@ func (q *Queries) ListAccountsByCustomer(ctx context.Context, arg ListAccountsBy
 }
 
 const updateAccountStatus = `-- name: UpdateAccountStatus :one
-UPDATE accounts SET status = $2::account_status, closed_at = $3::timestamptz WHERE id = $1::uuid RETURNING id, customer_id, external_ref, account_number, account_type, status, currency_code, ledger_normal_side, metadata, opened_at, closed_at, created_at, updated_at, deleted_at
+UPDATE accounts SET status = $1::account_status, closed_at = $2::timestamptz WHERE id = $3::uuid RETURNING id, customer_id, external_ref, account_number, account_type, status, currency_code, ledger_normal_side, metadata, opened_at, closed_at, created_at, updated_at, deleted_at
 `
 
 type UpdateAccountStatusParams struct {
-	Column1 pgtype.UUID        `json:"column_1"`
-	Column2 interface{}        `json:"column_2"`
-	Column3 pgtype.Timestamptz `json:"column_3"`
+	Status   string             `json:"status"`
+	ClosedAt pgtype.Timestamptz `json:"closed_at"`
+	ID       pgtype.UUID        `json:"id"`
 }
 
 func (q *Queries) UpdateAccountStatus(ctx context.Context, arg UpdateAccountStatusParams) (Account, error) {
-	row := q.db.QueryRow(ctx, updateAccountStatus, arg.Column1, arg.Column2, arg.Column3)
+	row := q.db.QueryRow(ctx, updateAccountStatus, arg.Status, arg.ClosedAt, arg.ID)
 	var i Account
 	err := row.Scan(
 		&i.ID,

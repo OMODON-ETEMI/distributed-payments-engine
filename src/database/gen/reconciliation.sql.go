@@ -20,24 +20,24 @@ RETURNING id, reconciliation_batch_id, journal_transaction_id, journal_line_id, 
 `
 
 type AddReconciliationItemParams struct {
-	Column1           pgtype.UUID    `json:"column_1"`
-	Column2           pgtype.UUID    `json:"column_2"`
-	Column3           pgtype.UUID    `json:"column_3"`
-	ExternalReference pgtype.Text    `json:"external_reference"`
-	Column5           string         `json:"column_5"`
-	Column6           pgtype.Numeric `json:"column_6"`
-	Column7           []byte         `json:"column_7"`
+	ReconciliationBatchID pgtype.UUID    `json:"reconciliation_batch_id"`
+	JournalTransactionID  pgtype.UUID    `json:"journal_transaction_id"`
+	JournalLineID         pgtype.UUID    `json:"journal_line_id"`
+	ExternalReference     pgtype.Text    `json:"external_reference"`
+	CurrencyCode          string         `json:"currency_code"`
+	Amount                pgtype.Numeric `json:"amount"`
+	Metadata              []byte         `json:"metadata"`
 }
 
 func (q *Queries) AddReconciliationItem(ctx context.Context, arg AddReconciliationItemParams) (ReconciliationItem, error) {
 	row := q.db.QueryRow(ctx, addReconciliationItem,
-		arg.Column1,
-		arg.Column2,
-		arg.Column3,
+		arg.ReconciliationBatchID,
+		arg.JournalTransactionID,
+		arg.JournalLineID,
 		arg.ExternalReference,
-		arg.Column5,
-		arg.Column6,
-		arg.Column7,
+		arg.CurrencyCode,
+		arg.Amount,
+		arg.Metadata,
 	)
 	var i ReconciliationItem
 	err := row.Scan(
@@ -70,14 +70,14 @@ RETURNING id, source_system, source_file_name, source_reference, status, stateme
 `
 
 type CreateReconciliationBatchParams struct {
-	SourceSystem    string         `json:"source_system"`
-	SourceFileName  pgtype.Text    `json:"source_file_name"`
-	SourceReference pgtype.Text    `json:"source_reference"`
-	Column4         interface{}    `json:"column_4"`
-	Column5         pgtype.Date    `json:"column_5"`
-	Column6         pgtype.Numeric `json:"column_6"`
-	Column7         int32          `json:"column_7"`
-	Column8         []byte         `json:"column_8"`
+	SourceSystem        string         `json:"source_system"`
+	SourceFileName      pgtype.Text    `json:"source_file_name"`
+	SourceReference     pgtype.Text    `json:"source_reference"`
+	Status              string         `json:"status"`
+	StatementDate       pgtype.Date    `json:"statement_date"`
+	ExpectedTotalAmount pgtype.Numeric `json:"expected_total_amount"`
+	ExpectedTotalCount  int32          `json:"expected_total_count"`
+	Metadata            []byte         `json:"metadata"`
 }
 
 // Reconciliation queries
@@ -86,11 +86,11 @@ func (q *Queries) CreateReconciliationBatch(ctx context.Context, arg CreateRecon
 		arg.SourceSystem,
 		arg.SourceFileName,
 		arg.SourceReference,
-		arg.Column4,
-		arg.Column5,
-		arg.Column6,
-		arg.Column7,
-		arg.Column8,
+		arg.Status,
+		arg.StatementDate,
+		arg.ExpectedTotalAmount,
+		arg.ExpectedTotalCount,
+		arg.Metadata,
 	)
 	var i ReconciliationBatch
 	err := row.Scan(
@@ -119,8 +119,8 @@ const listReconciliationItemsForBatch = `-- name: ListReconciliationItemsForBatc
 SELECT id, reconciliation_batch_id, journal_transaction_id, journal_line_id, external_reference, status, currency_code, amount, matched_amount, variance_amount, variance_reason, matched_at, metadata, created_at, updated_at FROM reconciliation_items WHERE reconciliation_batch_id = $1::uuid ORDER BY created_at ASC
 `
 
-func (q *Queries) ListReconciliationItemsForBatch(ctx context.Context, dollar_1 pgtype.UUID) ([]ReconciliationItem, error) {
-	rows, err := q.db.Query(ctx, listReconciliationItemsForBatch, dollar_1)
+func (q *Queries) ListReconciliationItemsForBatch(ctx context.Context, reconciliationBatchID pgtype.UUID) ([]ReconciliationItem, error) {
+	rows, err := q.db.Query(ctx, listReconciliationItemsForBatch, reconciliationBatchID)
 	if err != nil {
 		return nil, err
 	}
@@ -156,16 +156,16 @@ func (q *Queries) ListReconciliationItemsForBatch(ctx context.Context, dollar_1 
 }
 
 const markReconciliationItemMatched = `-- name: MarkReconciliationItemMatched :one
-UPDATE reconciliation_items SET status = 'matched', matched_at = now(), matched_amount = $2::numeric(20,8) WHERE id = $1::uuid AND status = 'pending' RETURNING id, reconciliation_batch_id, journal_transaction_id, journal_line_id, external_reference, status, currency_code, amount, matched_amount, variance_amount, variance_reason, matched_at, metadata, created_at, updated_at
+UPDATE reconciliation_items SET status = 'matched', matched_at = now(), matched_amount = $1::numeric(20,8) WHERE id = $2::uuid AND status = 'pending' RETURNING id, reconciliation_batch_id, journal_transaction_id, journal_line_id, external_reference, status, currency_code, amount, matched_amount, variance_amount, variance_reason, matched_at, metadata, created_at, updated_at
 `
 
 type MarkReconciliationItemMatchedParams struct {
-	Column1 pgtype.UUID    `json:"column_1"`
-	Column2 pgtype.Numeric `json:"column_2"`
+	MatchedAmount pgtype.Numeric `json:"matched_amount"`
+	ID            pgtype.UUID    `json:"id"`
 }
 
 func (q *Queries) MarkReconciliationItemMatched(ctx context.Context, arg MarkReconciliationItemMatchedParams) (ReconciliationItem, error) {
-	row := q.db.QueryRow(ctx, markReconciliationItemMatched, arg.Column1, arg.Column2)
+	row := q.db.QueryRow(ctx, markReconciliationItemMatched, arg.MatchedAmount, arg.ID)
 	var i ReconciliationItem
 	err := row.Scan(
 		&i.ID,

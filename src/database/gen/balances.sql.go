@@ -20,12 +20,12 @@ WHERE account_id = $1::uuid
 `
 
 type ComputeHeldAmountParams struct {
-	Column1 pgtype.UUID `json:"column_1"`
-	Column2 string      `json:"column_2"`
+	AccountID    pgtype.UUID `json:"account_id"`
+	CurrencyCode string      `json:"currency_code"`
 }
 
 func (q *Queries) ComputeHeldAmount(ctx context.Context, arg ComputeHeldAmountParams) (pgtype.Numeric, error) {
-	row := q.db.QueryRow(ctx, computeHeldAmount, arg.Column1, arg.Column2)
+	row := q.db.QueryRow(ctx, computeHeldAmount, arg.AccountID, arg.CurrencyCode)
 	var held_balance pgtype.Numeric
 	err := row.Scan(&held_balance)
 	return held_balance, err
@@ -45,8 +45,8 @@ WHERE jl.account_id = $1::uuid
 `
 
 type ComputeLedgerBalanceParams struct {
-	Column1 pgtype.UUID `json:"column_1"`
-	Column2 string      `json:"column_2"`
+	AccountID    pgtype.UUID `json:"account_id"`
+	CurrencyCode string      `json:"currency_code"`
 }
 
 type ComputeLedgerBalanceRow struct {
@@ -56,7 +56,7 @@ type ComputeLedgerBalanceRow struct {
 }
 
 func (q *Queries) ComputeLedgerBalance(ctx context.Context, arg ComputeLedgerBalanceParams) (ComputeLedgerBalanceRow, error) {
-	row := q.db.QueryRow(ctx, computeLedgerBalance, arg.Column1, arg.Column2)
+	row := q.db.QueryRow(ctx, computeLedgerBalance, arg.AccountID, arg.CurrencyCode)
 	var i ComputeLedgerBalanceRow
 	err := row.Scan(&i.LedgerBalance, &i.LastLineID, &i.LastTransactionID)
 	return i, err
@@ -85,13 +85,13 @@ LIMIT 1
 `
 
 type GetBalanceProjectionParams struct {
-	Column1     pgtype.UUID `json:"column_1"`
-	Column2     string      `json:"column_2"`
-	BalanceKind interface{} `json:"balance_kind"`
+	AccountID    pgtype.UUID `json:"account_id"`
+	CurrencyCode string      `json:"currency_code"`
+	BalanceKind  string      `json:"balance_kind"`
 }
 
 func (q *Queries) GetBalanceProjection(ctx context.Context, arg GetBalanceProjectionParams) (BalanceProjection, error) {
-	row := q.db.QueryRow(ctx, getBalanceProjection, arg.Column1, arg.Column2, arg.BalanceKind)
+	row := q.db.QueryRow(ctx, getBalanceProjection, arg.AccountID, arg.CurrencyCode, arg.BalanceKind)
 	var i BalanceProjection
 	err := row.Scan(
 		&i.ID,
@@ -130,7 +130,7 @@ ORDER BY currency_code ASC, balance_kind ASC
 type GetBalancesForAccountRow struct {
 	AccountID        pgtype.UUID        `json:"account_id"`
 	CurrencyCode     string             `json:"currency_code"`
-	BalanceKind      interface{}        `json:"balance_kind"`
+	BalanceKind      string             `json:"balance_kind"`
 	LedgerBalance    pgtype.Numeric     `json:"ledger_balance"`
 	AvailableBalance pgtype.Numeric     `json:"available_balance"`
 	HeldBalance      pgtype.Numeric     `json:"held_balance"`
@@ -140,8 +140,8 @@ type GetBalancesForAccountRow struct {
 
 // balance projections & helpers
 // Queries to compute, read and upsert balance_projections reliably.
-func (q *Queries) GetBalancesForAccount(ctx context.Context, dollar_1 pgtype.UUID) ([]GetBalancesForAccountRow, error) {
-	rows, err := q.db.Query(ctx, getBalancesForAccount, dollar_1)
+func (q *Queries) GetBalancesForAccount(ctx context.Context, accountID pgtype.UUID) ([]GetBalancesForAccountRow, error) {
+	rows, err := q.db.Query(ctx, getBalancesForAccount, accountID)
 	if err != nil {
 		return nil, err
 	}
@@ -216,12 +216,12 @@ DO UPDATE SET
 `
 
 type RebuildBalanceProjectionParams struct {
-	Column1 pgtype.UUID `json:"column_1"`
-	Column2 string      `json:"column_2"`
+	AccountID    pgtype.UUID `json:"account_id"`
+	CurrencyCode string      `json:"currency_code"`
 }
 
 func (q *Queries) RebuildBalanceProjection(ctx context.Context, arg RebuildBalanceProjectionParams) error {
-	_, err := q.db.Exec(ctx, rebuildBalanceProjection, arg.Column1, arg.Column2)
+	_, err := q.db.Exec(ctx, rebuildBalanceProjection, arg.AccountID, arg.CurrencyCode)
 	return err
 }
 
@@ -239,33 +239,33 @@ DO UPDATE SET
   last_line_id = EXCLUDED.last_line_id,
   version = balance_projections.version + 1,
   computed_at = now()
-WHERE balance_projections.version = $9
+  WHERE balance_projections.version = $9
 `
 
 type UpsertBalanceProjectionWithExpectedVersionParams struct {
-	Column1     pgtype.UUID    `json:"column_1"`
-	Column2     string         `json:"column_2"`
-	BalanceKind interface{}    `json:"balance_kind"`
-	Column4     pgtype.Numeric `json:"column_4"`
-	Column5     pgtype.Numeric `json:"column_5"`
-	Column6     pgtype.Numeric `json:"column_6"`
-	Column7     pgtype.UUID    `json:"column_7"`
-	Column8     pgtype.UUID    `json:"column_8"`
-	Version     int64          `json:"version"`
+	AccountID        pgtype.UUID    `json:"account_id"`
+	CurrencyCode     string         `json:"currency_code"`
+	BalanceKind      string         `json:"balance_kind"`
+	LedgerBalance    pgtype.Numeric `json:"ledger_balance"`
+	AvailableBalance pgtype.Numeric `json:"available_balance"`
+	HeldBalance      pgtype.Numeric `json:"held_balance"`
+	LastTxID         pgtype.UUID    `json:"last_tx_id"`
+	LastLineID       pgtype.UUID    `json:"last_line_id"`
+	ExpectedVersion  int64          `json:"expected_version"`
 }
 
 // Params: account_id, currency_code, balance_kind, ledger_balance, available_balance, held_balance, last_tx_id, last_line_id, expected_version
 func (q *Queries) UpsertBalanceProjectionWithExpectedVersion(ctx context.Context, arg UpsertBalanceProjectionWithExpectedVersionParams) error {
 	_, err := q.db.Exec(ctx, upsertBalanceProjectionWithExpectedVersion,
-		arg.Column1,
-		arg.Column2,
+		arg.AccountID,
+		arg.CurrencyCode,
 		arg.BalanceKind,
-		arg.Column4,
-		arg.Column5,
-		arg.Column6,
-		arg.Column7,
-		arg.Column8,
-		arg.Version,
+		arg.LedgerBalance,
+		arg.AvailableBalance,
+		arg.HeldBalance,
+		arg.LastTxID,
+		arg.LastLineID,
+		arg.ExpectedVersion,
 	)
 	return err
 }

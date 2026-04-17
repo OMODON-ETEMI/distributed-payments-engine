@@ -2,3 +2,5 @@ node_modules
 dist
 .env
 coverage
+distributed-payments-engine.exe
+distributed-payments-engine.exe.stackdump

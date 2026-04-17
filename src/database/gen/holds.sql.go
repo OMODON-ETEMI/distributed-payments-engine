@@ -13,18 +13,18 @@ import (
 
 const consumeHold = `-- name: ConsumeHold :one
 UPDATE funds_holds
-SET status = 'consumed', captured_at = now(), captured_amount = captured_amount + $2::numeric(20,8), remaining_amount = remaining_amount - $2::numeric(20,8)
-WHERE id = $1::uuid AND status = 'active' AND remaining_amount >= $2::numeric(20,8)
+SET status = 'consumed', captured_at = now(), captured_amount = captured_amount + $1::numeric(20,8), remaining_amount = remaining_amount - $1::numeric(20,8)
+WHERE id = $2::uuid AND status = 'active' AND remaining_amount >= $1::numeric(20,8)
 RETURNING id, account_id, transfer_request_id, journal_transaction_id, idempotency_key_id, status, currency_code, amount, remaining_amount, released_amount, captured_amount, reason_code, reason, expires_at, captured_at, released_at, cancelled_at, created_at, updated_at, deleted_at
 `
 
 type ConsumeHoldParams struct {
-	Column1 pgtype.UUID    `json:"column_1"`
-	Column2 pgtype.Numeric `json:"column_2"`
+	Amount pgtype.Numeric `json:"amount"`
+	ID     pgtype.UUID    `json:"id"`
 }
 
 func (q *Queries) ConsumeHold(ctx context.Context, arg ConsumeHoldParams) (FundsHold, error) {
-	row := q.db.QueryRow(ctx, consumeHold, arg.Column1, arg.Column2)
+	row := q.db.QueryRow(ctx, consumeHold, arg.Amount, arg.ID)
 	var i FundsHold
 	err := row.Scan(
 		&i.ID,
@@ -61,37 +61,37 @@ RETURNING id, account_id, transfer_request_id, journal_transaction_id, idempoten
 `
 
 type CreateHoldParams struct {
-	Column1    pgtype.UUID        `json:"column_1"`
-	Column2    pgtype.UUID        `json:"column_2"`
-	Column3    pgtype.UUID        `json:"column_3"`
-	Column4    pgtype.UUID        `json:"column_4"`
-	Column5    interface{}        `json:"column_5"`
-	Column6    string             `json:"column_6"`
-	Column7    pgtype.Numeric     `json:"column_7"`
-	Column8    pgtype.Numeric     `json:"column_8"`
-	Column9    pgtype.Numeric     `json:"column_9"`
-	Column10   pgtype.Numeric     `json:"column_10"`
-	ReasonCode pgtype.Text        `json:"reason_code"`
-	Reason     pgtype.Text        `json:"reason"`
-	Column13   pgtype.Timestamptz `json:"column_13"`
+	AccountID            pgtype.UUID        `json:"account_id"`
+	TransferRequestID    pgtype.UUID        `json:"transfer_request_id"`
+	JournalTransactionID pgtype.UUID        `json:"journal_transaction_id"`
+	IdempotencyKeyID     pgtype.UUID        `json:"idempotency_key_id"`
+	Status               string             `json:"status"`
+	CurrencyCode         string             `json:"currency_code"`
+	Amount               pgtype.Numeric     `json:"amount"`
+	RemainingAmount      pgtype.Numeric     `json:"remaining_amount"`
+	ReleasedAmount       pgtype.Numeric     `json:"released_amount"`
+	CapturedAmount       pgtype.Numeric     `json:"captured_amount"`
+	ReasonCode           pgtype.Text        `json:"reason_code"`
+	Reason               pgtype.Text        `json:"reason"`
+	ExpiresAt            pgtype.Timestamptz `json:"expires_at"`
 }
 
 // Funds holds (reservation) queries
 func (q *Queries) CreateHold(ctx context.Context, arg CreateHoldParams) (FundsHold, error) {
 	row := q.db.QueryRow(ctx, createHold,
-		arg.Column1,
-		arg.Column2,
-		arg.Column3,
-		arg.Column4,
-		arg.Column5,
-		arg.Column6,
-		arg.Column7,
-		arg.Column8,
-		arg.Column9,
-		arg.Column10,
+		arg.AccountID,
+		arg.TransferRequestID,
+		arg.JournalTransactionID,
+		arg.IdempotencyKeyID,
+		arg.Status,
+		arg.CurrencyCode,
+		arg.Amount,
+		arg.RemainingAmount,
+		arg.ReleasedAmount,
+		arg.CapturedAmount,
 		arg.ReasonCode,
 		arg.Reason,
-		arg.Column13,
+		arg.ExpiresAt,
 	)
 	var i FundsHold
 	err := row.Scan(
@@ -123,8 +123,8 @@ const getActiveHoldsForAccount = `-- name: GetActiveHoldsForAccount :many
 SELECT id, account_id, transfer_request_id, journal_transaction_id, idempotency_key_id, status, currency_code, amount, remaining_amount, released_amount, captured_amount, reason_code, reason, expires_at, captured_at, released_at, cancelled_at, created_at, updated_at, deleted_at FROM funds_holds WHERE account_id = $1::uuid AND status = 'active' ORDER BY created_at DESC
 `
 
-func (q *Queries) GetActiveHoldsForAccount(ctx context.Context, dollar_1 pgtype.UUID) ([]FundsHold, error) {
-	rows, err := q.db.Query(ctx, getActiveHoldsForAccount, dollar_1)
+func (q *Queries) GetActiveHoldsForAccount(ctx context.Context, accountID pgtype.UUID) ([]FundsHold, error) {
+	rows, err := q.db.Query(ctx, getActiveHoldsForAccount, accountID)
 	if err != nil {
 		return nil, err
 	}
@@ -166,18 +166,18 @@ func (q *Queries) GetActiveHoldsForAccount(ctx context.Context, dollar_1 pgtype.
 
 const releaseHold = `-- name: ReleaseHold :one
 UPDATE funds_holds
-SET status = 'released', released_at = now(), released_amount = released_amount + $2::numeric(20,8), remaining_amount = remaining_amount - $2::numeric(20,8)
-WHERE id = $1::uuid AND status = 'active' AND remaining_amount >= $2::numeric(20,8)
+SET status = 'released', released_at = now(), released_amount = released_amount + $1::numeric(20,8), remaining_amount = remaining_amount - $1::numeric(20,8)
+WHERE id = $2::uuid AND status = 'active' AND remaining_amount >= $1::numeric(20,8)
 RETURNING id, account_id, transfer_request_id, journal_transaction_id, idempotency_key_id, status, currency_code, amount, remaining_amount, released_amount, captured_amount, reason_code, reason, expires_at, captured_at, released_at, cancelled_at, created_at, updated_at, deleted_at
 `
 
 type ReleaseHoldParams struct {
-	Column1 pgtype.UUID    `json:"column_1"`
-	Column2 pgtype.Numeric `json:"column_2"`
+	Amount pgtype.Numeric `json:"amount"`
+	ID     pgtype.UUID    `json:"id"`
 }
 
 func (q *Queries) ReleaseHold(ctx context.Context, arg ReleaseHoldParams) (FundsHold, error) {
-	row := q.db.QueryRow(ctx, releaseHold, arg.Column1, arg.Column2)
+	row := q.db.QueryRow(ctx, releaseHold, arg.Amount, arg.ID)
 	var i FundsHold
 	err := row.Scan(
 		&i.ID,

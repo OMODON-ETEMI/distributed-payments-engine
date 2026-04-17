@@ -4,18 +4,18 @@
 INSERT INTO reconciliation_batches (
   source_system, source_file_name, source_reference, status, statement_date, expected_total_amount, expected_total_count, metadata
 )
-VALUES ($1, $2, $3, $4::reconciliation_status, $5::date, $6::numeric(20,8), $7::int, $8::jsonb)
+VALUES (@source_system, @source_file_name, @source_reference, @status::reconciliation_status, @statement_date::date, @expected_total_amount::numeric(20,8), @expected_total_count::int, @metadata::jsonb)
 RETURNING *;
 
 -- name: AddReconciliationItem :one
 INSERT INTO reconciliation_items (
   reconciliation_batch_id, journal_transaction_id, journal_line_id, external_reference, currency_code, amount, metadata
 )
-VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5::char(3), $6::numeric(20,8), $7::jsonb)
+VALUES (@reconciliation_batch_id::uuid, @journal_transaction_id::uuid, @journal_line_id::uuid, @external_reference, @currency_code::char(3), @amount::numeric(20,8), @metadata::jsonb)
 RETURNING *;
 
 -- name: ListReconciliationItemsForBatch :many
-SELECT * FROM reconciliation_items WHERE reconciliation_batch_id = $1::uuid ORDER BY created_at ASC;
+SELECT * FROM reconciliation_items WHERE reconciliation_batch_id = @reconciliation_batch_id::uuid ORDER BY created_at ASC;
 
 -- name: MarkReconciliationItemMatched :one
-UPDATE reconciliation_items SET status = 'matched', matched_at = now(), matched_amount = $2::numeric(20,8) WHERE id = $1::uuid AND status = 'pending' RETURNING *;
+UPDATE reconciliation_items SET status = 'matched', matched_at = now(), matched_amount = @matched_amount::numeric(20,8) WHERE id = @id::uuid AND status = 'pending' RETURNING *;
