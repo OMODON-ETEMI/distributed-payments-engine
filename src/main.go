@@ -59,7 +59,13 @@ func main() {
 	v1Router.Post("/get/user/external_ref", api.HandleGetUserByExternalRef)
 	v1Router.Post("/get/user/id", api.HandleGetUserById)
 	v1Router.Post("/list/users", api.HandleListCustomers)
+	v1Router.Post("/create/account", api.HandleCreateAccount)
+	v1Router.Post("/get/account/external_ref", api.HandleGetAccountByExternalRef)
+	v1Router.Post("/get/account/id", api.HandleGetAccountByID)
+	v1Router.Post("/get/account/number", api.HandleGetAccountByAccountNumber)
+	v1Router.Post("/list/accounts/customer", api.HandleListAccountByCustomer)
 	v1Router.Post("/update/user", api.HandleUserUpdateStatus)
+	v1Router.Post("/update/account", api.HandleUpdateAccountStatus)
 	router.Mount("/v1", v1Router)
 
 	srv := &http.Server{

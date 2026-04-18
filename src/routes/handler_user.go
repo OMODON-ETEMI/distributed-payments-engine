@@ -34,20 +34,18 @@ func (api *ApiConfig) HandleCreateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// basic validation
 	if params.ExternalRef == "" || params.FullName == "" || params.Email == "" {
 		respondWithError(w, 400, "missing required fields: external_ref, full_name or email")
 		return
 	}
 
-	// idempotency: if a customer with the external_ref exists, return it
 	existing, err := api.Db.GetCustomerByExternalRef(r.Context(), params.ExternalRef)
-	if err == nil {
-		respondeWithJson(w, 200, UserResponseObject(existing))
-		return
-	}
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		respondWithError(w, 500, fmt.Sprintf("Error checking existing user: %v", err))
+		return
+	}
+	if err == nil {
+		respondeWithJson(w, 200, UserResponseObject(existing))
 		return
 	}
 
