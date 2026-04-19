@@ -11,17 +11,17 @@ import (
 )
 
 type BalanceParameters struct {
-	ID               string                 `json:"id"`
-	AccountID       string                 `json:"account_id"`
-	ExternalRef      string                 `json:"external_ref"`
-	AccountNumber    string                 `json:"account_number"`
-	AccountType      string                 `json:"account_type"`
-	Status           string                 `json:"status"`
-	CurrencyCode     string                 `json:"currency_code"`
-	BalanceKind      string                 `json:"balance_kind"`
-	LedgerNormalSide string                 `json:"ledger_normal_side"`
-	Limit            int                    `json:"limit"`
-	Offset           int                    `json:"offset"`
+	ID               string `json:"id"`
+	AccountID        string `json:"account_id"`
+	ExternalRef      string `json:"external_ref"`
+	AccountNumber    string `json:"account_number"`
+	AccountType      string `json:"account_type"`
+	Status           string `json:"status"`
+	CurrencyCode     string `json:"currency_code"`
+	BalanceKind      string `json:"balance_kind"`
+	LedgerNormalSide string `json:"ledger_normal_side"`
+	Limit            int    `json:"limit"`
+	Offset           int    `json:"offset"`
 }
 
 func (api *ApiConfig) HandleComputeHeldAmount(w http.ResponseWriter, r *http.Request) {
@@ -43,15 +43,26 @@ func (api *ApiConfig) HandleComputeHeldAmount(w http.ResponseWriter, r *http.Req
 		return
 	}
 
+	// ensure account exists
+	_, err = api.Db.GetAccountByID(r.Context(), id)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			respondWithError(w, 404, "account not found")
+			return
+		}
+		respondWithError(w, 500, fmt.Sprintf("Error looking up account: %v", err))
+		return
+	}
+
 	balance, err := api.Db.ComputeHeldAmount(r.Context(), database.ComputeHeldAmountParams{
-		AccountID: id,
+		AccountID:    id,
 		CurrencyCode: params.CurrencyCode,
 	})
 	if err != nil {
 		respondWithError(w, 500, fmt.Sprintf("Error computing Held Amount: %v", err))
 		return
 	}
-	respondeWithJson(w, 200, balance)
+	respondeWithJson(w, 200, HeldAmountResponse{HeldBalance: formatNumeric(balance)})
 }
 
 func (api *ApiConfig) HandleGetBalancesForAccount(w http.ResponseWriter, r *http.Request) {
@@ -72,12 +83,27 @@ func (api *ApiConfig) HandleGetBalancesForAccount(w http.ResponseWriter, r *http
 		return
 	}
 
+	// ensure account exists
+	_, err = api.Db.GetAccountByID(r.Context(), id)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			respondWithError(w, 404, "account not found")
+			return
+		}
+		respondWithError(w, 500, fmt.Sprintf("Error looking up account: %v", err))
+		return
+	}
+
 	balances, err := api.Db.GetBalancesForAccount(r.Context(), id)
 	if err != nil {
 		respondWithError(w, 500, fmt.Sprintf("Error getting balances for account: %v", err))
 		return
 	}
-	respondeWithJson(w, 200, balances)
+	out := make([]BalanceProjectionResponse, 0, len(balances))
+	for _, b := range balances {
+		out = append(out, GetBalancesForAccountRowToResponse(b))
+	}
+	respondeWithJson(w, 200, out)
 }
 
 func (api *ApiConfig) HandleGetBalanceProjection(w http.ResponseWriter, r *http.Request) {
@@ -98,6 +124,17 @@ func (api *ApiConfig) HandleGetBalanceProjection(w http.ResponseWriter, r *http.
 		return
 	}
 
+	// ensure account exists
+	_, err = api.Db.GetAccountByID(r.Context(), id)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			respondWithError(w, 404, "account not found")
+			return
+		}
+		respondWithError(w, 500, fmt.Sprintf("Error looking up account: %v", err))
+		return
+	}
+
 	projection, err := api.Db.GetBalanceProjection(r.Context(), database.GetBalanceProjectionParams{
 		AccountID:    id,
 		CurrencyCode: params.CurrencyCode,
@@ -111,7 +148,7 @@ func (api *ApiConfig) HandleGetBalanceProjection(w http.ResponseWriter, r *http.
 		respondWithError(w, 500, fmt.Sprintf("Error getting balance projection: %v", err))
 		return
 	}
-	respondeWithJson(w, 200, projection)
+	respondeWithJson(w, 200, BalanceProjectionResponseObject(projection))
 }
 
 func (api *ApiConfig) HandleComputeLedgerBalance(w http.ResponseWriter, r *http.Request) {
@@ -132,12 +169,23 @@ func (api *ApiConfig) HandleComputeLedgerBalance(w http.ResponseWriter, r *http.
 		return
 	}
 
+	// ensure account exists
+	_, err = api.Db.GetAccountByID(r.Context(), id)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			respondWithError(w, 404, "account not found")
+			return
+		}
+		respondWithError(w, 500, fmt.Sprintf("Error looking up account: %v", err))
+		return
+	}
+
 	row, err := api.Db.ComputeLedgerBalance(r.Context(), database.ComputeLedgerBalanceParams{AccountID: id, CurrencyCode: params.CurrencyCode})
 	if err != nil {
 		respondWithError(w, 500, fmt.Sprintf("Error computing ledger balance: %v", err))
 		return
 	}
-	respondeWithJson(w, 200, row)
+	respondeWithJson(w, 200, ComputeLedgerBalanceRowToResponse(row))
 }
 
 func (api *ApiConfig) HandleRebuildBalanceProjection(w http.ResponseWriter, r *http.Request) {
@@ -155,6 +203,17 @@ func (api *ApiConfig) HandleRebuildBalanceProjection(w http.ResponseWriter, r *h
 	id, err := StringtoPgUuid(params.AccountID)
 	if err != nil {
 		respondWithError(w, 400, fmt.Sprintf("Error parsing ID: %v", err))
+		return
+	}
+
+	// ensure account exists
+	_, err = api.Db.GetAccountByID(r.Context(), id)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			respondWithError(w, 404, "account not found")
+			return
+		}
+		respondWithError(w, 500, fmt.Sprintf("Error looking up account: %v", err))
 		return
 	}
 

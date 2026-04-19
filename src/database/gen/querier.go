@@ -39,6 +39,7 @@ type Querier interface {
 	GetCustomerByExternalRef(ctx context.Context, externalRef string) (Customer, error)
 	GetCustomerByID(ctx context.Context, id pgtype.UUID) (Customer, error)
 	GetJournalTransactionByRef(ctx context.Context, transactionRef string) (JournalTransaction, error)
+	GetJournalTransactionByID(ctx context.Context, id pgtype.UUID) (JournalTransaction, error)
 	GetTransferRequestByID(ctx context.Context, id pgtype.UUID) (TransferRequest, error)
 	GetTransferRequestByIdempotencyKey(ctx context.Context, idempotencyKeyID pgtype.UUID) (TransferRequest, error)
 	ListAccountsByCustomer(ctx context.Context, arg ListAccountsByCustomerParams) ([]Account, error)

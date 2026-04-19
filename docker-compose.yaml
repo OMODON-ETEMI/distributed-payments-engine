@@ -68,6 +68,10 @@ services:
       migrate:
         condition: service_completed_successfully
 
+  redis: 
+    image: redis:7-alpine
+    restart: unless-stopped
+
 
 volumes:
   distributed_financial_ledger:

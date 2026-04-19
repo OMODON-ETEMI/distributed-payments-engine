@@ -152,6 +152,36 @@ func (q *Queries) GetJournalTransactionByRef(ctx context.Context, transactionRef
 	return i, err
 }
 
+const getJournalTransactionByID = `-- name: GetJournalTransactionByID :one
+SELECT id, transaction_ref, transfer_request_id, idempotency_key_id, status, entry_type, accounting_date, effective_at, posted_at, reversed_transaction_id, reversal_of_transaction_id, source_system, source_event_id, description, metadata, created_at, updated_at, deleted_at FROM journal_transactions WHERE id = $1::uuid LIMIT 1
+`
+
+func (q *Queries) GetJournalTransactionByID(ctx context.Context, id pgtype.UUID) (JournalTransaction, error) {
+	row := q.db.QueryRow(ctx, getJournalTransactionByID, id)
+	var i JournalTransaction
+	err := row.Scan(
+		&i.ID,
+		&i.TransactionRef,
+		&i.TransferRequestID,
+		&i.IdempotencyKeyID,
+		&i.Status,
+		&i.EntryType,
+		&i.AccountingDate,
+		&i.EffectiveAt,
+		&i.PostedAt,
+		&i.ReversedTransactionID,
+		&i.ReversalOfTransactionID,
+		&i.SourceSystem,
+		&i.SourceEventID,
+		&i.Description,
+		&i.Metadata,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.DeletedAt,
+	)
+	return i, err
+}
+
 const listJournalLinesForTransaction = `-- name: ListJournalLinesForTransaction :many
 SELECT id, journal_transaction_id, line_number, account_id, side, amount, currency_code, balance_kind, memo, metadata, created_at FROM journal_lines WHERE journal_transaction_id = $1::uuid ORDER BY line_number ASC
 `
