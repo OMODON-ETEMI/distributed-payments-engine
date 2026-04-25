@@ -39,7 +39,7 @@ func (api *ApiConfig) HandleCreateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	existing, err := api.Db.GetCustomerByExternalRef(r.Context(), params.ExternalRef)
+	existing, err := api.Db.Queries.GetCustomerByExternalRef(r.Context(), params.ExternalRef)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		respondWithError(w, 500, fmt.Sprintf("Error checking existing user: %v", err))
 		return
@@ -55,7 +55,7 @@ func (api *ApiConfig) HandleCreateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user, err := api.Db.CreateCustomer(r.Context(), database.CreateCustomerParams{
+	user, err := api.Db.Queries.CreateCustomer(r.Context(), database.CreateCustomerParams{
 		ExternalRef: params.ExternalRef,
 		FullName:    params.FullName,
 		Email:       params.Email,
@@ -84,7 +84,7 @@ func (api *ApiConfig) HandleGetUserByExternalRef(w http.ResponseWriter, r *http.
 		respondWithError(w, 400, "external_ref is required")
 		return
 	}
-	user, err := api.Db.GetCustomerByExternalRef(r.Context(), params.ExternalRef)
+	user, err := api.Db.Queries.GetCustomerByExternalRef(r.Context(), params.ExternalRef)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			respondWithError(w, 404, "user not found")
@@ -109,7 +109,7 @@ func (api *ApiConfig) HandleGetUserById(w http.ResponseWriter, r *http.Request) 
 		respondWithError(w, 400, fmt.Sprintf("Error parsing ID: %v", err))
 		return
 	}
-	user, err := api.Db.GetCustomerByID(r.Context(), id)
+	user, err := api.Db.Queries.GetCustomerByID(r.Context(), id)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			respondWithError(w, 404, "user not found")
@@ -138,7 +138,7 @@ func (api *ApiConfig) HandleUserUpdateStatus(w http.ResponseWriter, r *http.Requ
 		respondWithError(w, 400, "status is required")
 		return
 	}
-	user, err := api.Db.UpdateCustomerStatus(r.Context(), database.UpdateCustomerStatusParams{
+	user, err := api.Db.Queries.UpdateCustomerStatus(r.Context(), database.UpdateCustomerStatusParams{
 		ID:     id,
 		Status: params.Status,
 	})
@@ -174,7 +174,7 @@ func (api *ApiConfig) HandleListCustomers(w http.ResponseWriter, r *http.Request
 		limit = 1000
 	}
 
-	users, err := api.Db.ListCustomers(r.Context(), database.ListCustomersParams{Limit: limit, Offset: offset})
+	users, err := api.Db.Queries.ListCustomers(r.Context(), database.ListCustomersParams{Limit: limit, Offset: offset})
 	if err != nil {
 		respondWithError(w, 500, fmt.Sprintf("Error listing users: %v", err))
 		return

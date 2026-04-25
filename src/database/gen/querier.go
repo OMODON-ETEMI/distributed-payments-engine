@@ -11,48 +11,71 @@ import (
 )
 
 type Querier interface {
+	// Locking helper queries
+	AcquireIdempotencyKeyForUpdate(ctx context.Context, arg AcquireIdempotencyKeyForUpdateParams) (IdempotencyKey, error)
+	AcquireIdempotencyKeyForUpdateSkipLocked(ctx context.Context, arg AcquireIdempotencyKeyForUpdateSkipLockedParams) (IdempotencyKey, error)
 	AddReconciliationItem(ctx context.Context, arg AddReconciliationItemParams) (ReconciliationItem, error)
 	ComputeHeldAmount(ctx context.Context, arg ComputeHeldAmountParams) (pgtype.Numeric, error)
 	ComputeLedgerBalance(ctx context.Context, arg ComputeLedgerBalanceParams) (ComputeLedgerBalanceRow, error)
 	ConsumeHold(ctx context.Context, arg ConsumeHoldParams) (FundsHold, error)
 	// Accounts queries
 	CreateAccount(ctx context.Context, arg CreateAccountParams) (Account, error)
+	CreateAuditLog(ctx context.Context, arg CreateAuditLogParams) (AuditLog, error)
 	// Customers queries
 	CreateCustomer(ctx context.Context, arg CreateCustomerParams) (Customer, error)
 	// Funds holds (reservation) queries
 	CreateHold(ctx context.Context, arg CreateHoldParams) (FundsHold, error)
+	CreateIdempotencyKey(ctx context.Context, arg CreateIdempotencyKeyParams) (IdempotencyKey, error)
 	CreateJournalLine(ctx context.Context, arg CreateJournalLineParams) (JournalLine, error)
 	// Journal transactions & lines
 	CreateJournalTransaction(ctx context.Context, arg CreateJournalTransactionParams) (JournalTransaction, error)
+	CreateOutboxEvent(ctx context.Context, arg CreateOutboxEventParams) (OutboxEvent, error)
 	// Reconciliation queries
 	CreateReconciliationBatch(ctx context.Context, arg CreateReconciliationBatchParams) (ReconciliationBatch, error)
 	// Transfer request queries
 	CreateTransferRequest(ctx context.Context, arg CreateTransferRequestParams) (TransferRequest, error)
 	GetAccountByExternalRef(ctx context.Context, externalRef string) (Account, error)
 	GetAccountByID(ctx context.Context, id pgtype.UUID) (Account, error)
+	// Accounts: get row FOR UPDATE
+	GetAccountByIDForUpdate(ctx context.Context, id pgtype.UUID) (Account, error)
+	GetAccountByIDForUpdateSkipLocked(ctx context.Context, id pgtype.UUID) (Account, error)
 	GetAccountByNumber(ctx context.Context, accountNumber string) (Account, error)
 	GetActiveHoldsForAccount(ctx context.Context, accountID pgtype.UUID) ([]FundsHold, error)
 	GetBalanceProjection(ctx context.Context, arg GetBalanceProjectionParams) (BalanceProjection, error)
+	// Balance projection: lock row for update
+	GetBalanceProjectionForUpdate(ctx context.Context, arg GetBalanceProjectionForUpdateParams) (BalanceProjection, error)
+	GetBalanceProjectionForUpdateSkipLocked(ctx context.Context, arg GetBalanceProjectionForUpdateSkipLockedParams) (BalanceProjection, error)
 	// balance projections & helpers
 	// Queries to compute, read and upsert balance_projections reliably.
 	GetBalancesForAccount(ctx context.Context, accountID pgtype.UUID) ([]GetBalancesForAccountRow, error)
 	GetCustomerByExternalRef(ctx context.Context, externalRef string) (Customer, error)
 	GetCustomerByID(ctx context.Context, id pgtype.UUID) (Customer, error)
+	GetIdempotencyKeyByID(ctx context.Context, id pgtype.UUID) (IdempotencyKey, error)
+	GetIdempotencyKeyByScopeAndKey(ctx context.Context, arg GetIdempotencyKeyByScopeAndKeyParams) (IdempotencyKey, error)
+	// Journal transaction: lock header for update
+	GetJournalTransactionByIDForUpdate(ctx context.Context, id pgtype.UUID) (JournalTransaction, error)
 	GetJournalTransactionByRef(ctx context.Context, transactionRef string) (JournalTransaction, error)
-	GetJournalTransactionByID(ctx context.Context, id pgtype.UUID) (JournalTransaction, error)
 	GetTransferRequestByID(ctx context.Context, id pgtype.UUID) (TransferRequest, error)
+	// Transfer request: lock for update
+	GetTransferRequestByIDForUpdate(ctx context.Context, id pgtype.UUID) (TransferRequest, error)
 	GetTransferRequestByIdempotencyKey(ctx context.Context, idempotencyKeyID pgtype.UUID) (TransferRequest, error)
+	GetTransferRequestByIdempotencyKeyForUpdate(ctx context.Context, idempotencyKeyID pgtype.UUID) (TransferRequest, error)
 	ListAccountsByCustomer(ctx context.Context, arg ListAccountsByCustomerParams) ([]Account, error)
 	ListCustomers(ctx context.Context, arg ListCustomersParams) ([]Customer, error)
 	ListJournalLinesForTransaction(ctx context.Context, journalTransactionID pgtype.UUID) ([]JournalLine, error)
+	ListPendingOutboxEvents(ctx context.Context, limit int32) ([]OutboxEvent, error)
 	ListReconciliationItemsForBatch(ctx context.Context, reconciliationBatchID pgtype.UUID) ([]ReconciliationItem, error)
 	ListTransferRequestsByCustomer(ctx context.Context, arg ListTransferRequestsByCustomerParams) ([]TransferRequest, error)
 	MarkJournalTransactionPosted(ctx context.Context, id pgtype.UUID) (JournalTransaction, error)
+	MarkOutboxEventDeadLetter(ctx context.Context, id pgtype.UUID) (OutboxEvent, error)
+	MarkOutboxEventFailed(ctx context.Context, arg MarkOutboxEventFailedParams) (OutboxEvent, error)
+	MarkOutboxEventPublished(ctx context.Context, id pgtype.UUID) (OutboxEvent, error)
 	MarkReconciliationItemMatched(ctx context.Context, arg MarkReconciliationItemMatchedParams) (ReconciliationItem, error)
 	RebuildBalanceProjection(ctx context.Context, arg RebuildBalanceProjectionParams) error
 	ReleaseHold(ctx context.Context, arg ReleaseHoldParams) (FundsHold, error)
 	UpdateAccountStatus(ctx context.Context, arg UpdateAccountStatusParams) (Account, error)
 	UpdateCustomerStatus(ctx context.Context, arg UpdateCustomerStatusParams) (Customer, error)
+	UpdateIdempotencyKeyResponse(ctx context.Context, arg UpdateIdempotencyKeyResponseParams) (IdempotencyKey, error)
 	UpdateTransferRequestStatus(ctx context.Context, arg UpdateTransferRequestStatusParams) (TransferRequest, error)
 	// Params: account_id, currency_code, balance_kind, ledger_balance, available_balance, held_balance, last_tx_id, last_line_id, expected_version
 	UpsertBalanceProjectionWithExpectedVersion(ctx context.Context, arg UpsertBalanceProjectionWithExpectedVersionParams) error

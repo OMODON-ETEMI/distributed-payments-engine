@@ -51,7 +51,7 @@ func (api *ApiConfig) HandleCreateAccount(w http.ResponseWriter, r *http.Request
 
 	// idempotency: prefer existing by external_ref, fallback to account_number
 	if params.ExternalRef != "" {
-		existing, err := api.Db.GetAccountByExternalRef(r.Context(), params.ExternalRef)
+		existing, err := api.Db.Queries.GetAccountByExternalRef(r.Context(), params.ExternalRef)
 		if err == nil {
 			respondeWithJson(w, 200, AccountResponseObject(existing))
 			return
@@ -62,7 +62,7 @@ func (api *ApiConfig) HandleCreateAccount(w http.ResponseWriter, r *http.Request
 		}
 	}
 	if params.AccountNumber != "" {
-		existing, err := api.Db.GetAccountByNumber(r.Context(), params.AccountNumber)
+		existing, err := api.Db.Queries.GetAccountByNumber(r.Context(), params.AccountNumber)
 		if err == nil {
 			respondeWithJson(w, 200, AccountResponseObject(existing))
 			return
@@ -75,7 +75,7 @@ func (api *ApiConfig) HandleCreateAccount(w http.ResponseWriter, r *http.Request
 
 	openedAt := pgtype.Timestamptz{Time: time.Now().UTC(), Valid: true}
 
-	account, err := api.Db.CreateAccount(r.Context(), database.CreateAccountParams{
+	account, err := api.Db.Queries.CreateAccount(r.Context(), database.CreateAccountParams{
 		CustomerID:       customer_id,
 		ExternalRef:      params.ExternalRef,
 		AccountNumber:    params.AccountNumber,
@@ -106,7 +106,7 @@ func (api *ApiConfig) HandleGetAccountByExternalRef(w http.ResponseWriter, r *ht
 		return
 	}
 
-	account, err := api.Db.GetAccountByExternalRef(r.Context(), params.ExternalRef)
+	account, err := api.Db.Queries.GetAccountByExternalRef(r.Context(), params.ExternalRef)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			respondWithError(w, 404, "Account not found")
@@ -138,7 +138,7 @@ func (api *ApiConfig) HandleGetAccountByID(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	account, err := api.Db.GetAccountByID(r.Context(), id)
+	account, err := api.Db.Queries.GetAccountByID(r.Context(), id)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			respondWithError(w, 404, "Account not found")
@@ -163,7 +163,7 @@ func (api *ApiConfig) HandleGetAccountByAccountNumber(w http.ResponseWriter, r *
 		return
 	}
 
-	account, err := api.Db.GetAccountByNumber(r.Context(), params.AccountNumber)
+	account, err := api.Db.Queries.GetAccountByNumber(r.Context(), params.AccountNumber)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			respondWithError(w, 404, "Account not found")
@@ -205,7 +205,7 @@ func (api *ApiConfig) HandleListAccountByCustomer(w http.ResponseWriter, r *http
 		return
 	}
 
-	account, err := api.Db.ListAccountsByCustomer(r.Context(), database.ListAccountsByCustomerParams{
+	account, err := api.Db.Queries.ListAccountsByCustomer(r.Context(), database.ListAccountsByCustomerParams{
 		Limit:      limit,
 		Offset:     offset,
 		CustomerID: id,
@@ -247,7 +247,7 @@ func (api *ApiConfig) HandleUpdateAccountStatus(w http.ResponseWriter, r *http.R
 		closedAt = pgtype.Timestamptz{Valid: false}
 	}
 
-	account, err := api.Db.UpdateAccountStatus(r.Context(), database.UpdateAccountStatusParams{
+	account, err := api.Db.Queries.UpdateAccountStatus(r.Context(), database.UpdateAccountStatusParams{
 		Status:   params.Status,
 		ClosedAt: closedAt,
 		ID:       id,

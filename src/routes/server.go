@@ -1,12 +1,12 @@
 package routes
 
 import (
-	db "github.com/OMODON-ETEMI/distributed-payments-engine/src/database/gen"
+	"github.com/OMODON-ETEMI/distributed-payments-engine/src/database"
 	"github.com/redis/go-redis/v9"
 )
 
 type ApiConfig struct {
-	Db    *db.Queries
+	Db    *database.Db
 	Redis *redis.Client
 }
 

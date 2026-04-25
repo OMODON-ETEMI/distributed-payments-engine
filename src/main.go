@@ -8,7 +8,8 @@ import (
 	"os"
 
 	_ "github.com/OMODON-ETEMI/distributed-payments-engine/docs"
-	db "github.com/OMODON-ETEMI/distributed-payments-engine/src/database/gen"
+	// db "github.com/OMODON-ETEMI/distributed-payments-engine/src/database/gen"
+	"github.com/OMODON-ETEMI/distributed-payments-engine/src/database"
 	"github.com/OMODON-ETEMI/distributed-payments-engine/src/routes"
 	"github.com/go-chi/chi"
 	"github.com/go-chi/cors"
@@ -38,7 +39,7 @@ func main() {
 	defer connPool.Close()
 
 	api := &routes.ApiConfig{
-		Db: db.New(connPool),
+		Db: database.NewDb(connPool),
 	}
 
 	router := chi.NewRouter()
@@ -56,24 +57,16 @@ func main() {
 	v1Router.Get("/healthz", routes.HandleReadiness)
 	v1Router.Get("/err", routes.HandleError)
 	v1Router.Post("/create/user", api.HandleCreateUser)
-	v1Router.Post("/get/user/external_ref", api.HandleGetUserByExternalRef)
-	v1Router.Post("/get/user/id", api.HandleGetUserById)
+	v1Router.Get("/user/{external_ref}", api.HandleGetUserByExternalRef)
+	v1Router.Get("/user/{id}", api.HandleGetUserById)
 	v1Router.Post("/list/users", api.HandleListCustomers)
 	v1Router.Post("/create/account", api.HandleCreateAccount)
-	v1Router.Post("/get/account/external_ref", api.HandleGetAccountByExternalRef)
-	v1Router.Post("/get/account/id", api.HandleGetAccountByID)
-	v1Router.Post("/get/account/number", api.HandleGetAccountByAccountNumber)
+	v1Router.Get("/account/{external_ref}", api.HandleGetAccountByExternalRef)
+	v1Router.Get("/account/{id}", api.HandleGetAccountByID)
+	v1Router.Get("/account/number/{number}", api.HandleGetAccountByAccountNumber)
 	v1Router.Post("/list/accounts/customer", api.HandleListAccountByCustomer)
-	v1Router.Post("/balance/compute_held", api.HandleComputeHeldAmount)
-	v1Router.Post("/balances/account", api.HandleGetBalancesForAccount)
-	v1Router.Post("/balance/projection", api.HandleGetBalanceProjection)
-	v1Router.Post("/balance/compute_ledger", api.HandleComputeLedgerBalance)
-	v1Router.Post("/balance/rebuild", api.HandleRebuildBalanceProjection)
-	v1Router.Post("/create/journal_line", api.HandleCreateJournalLine)
-	v1Router.Post("/create/journal_transaction", api.HandleCreateJournalTransaction)
-	v1Router.Post("/get/journal/transaction/ref", api.HandleGetJournalTransactionByRef)
-	v1Router.Post("/list/journal/lines", api.HandleListJournalLinesForTransaction)
-	v1Router.Post("/journal/mark_posted", api.HandleMarkJournalTransactionPosted)
+	v1Router.Get("/account/{id}/balances", api.HandleGetBalancesForAccount)
+	v1Router.Get("/list/journal/lines", api.HandleListJournalLinesForTransaction)
 	v1Router.Post("/update/user", api.HandleUserUpdateStatus)
 	v1Router.Post("/update/account", api.HandleUpdateAccountStatus)
 	router.Mount("/v1", v1Router)
