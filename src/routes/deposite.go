@@ -46,8 +46,8 @@ func (api *ApiConfig) HandleDeposite(w http.ResponseWriter, r *http.Request) {
 		respondWithError(w, 400, fmt.Sprintf("Error parsing Json: %v", err))
 		return
 	}
-	if params.IdempotencyKeyID == "" || params.CustomerID == "" || params.SourceAccountID == "" || params.DestinationAccountID == "" || params.CurrencyCode == "" || params.Description == "" {
-		respondWithError(w, 400, "missing required fields: idempotency_key_id, customer_id, source_account_id, destination_account_id, currency_code, description")
+	if params.IdempotencyKeyID == "" || params.CustomerID == "" || params.DestinationAccountID == "" || params.CurrencyCode == "" {
+		respondWithError(w, 400, "missing required fields: idempotency_key_id, customer_id, destination_account_id, currency_code")
 		return
 	}
 	customerID, err := StringtoPgUuid(params.CustomerID)
@@ -67,6 +67,15 @@ func (api *ApiConfig) HandleDeposite(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		respondWithError(w, 500, fmt.Sprintf("Error looking up customer: %v", err))
+		return
+	}
+	systemAcct, err := api.Db.Queries.GetAccountByExternalRef(r.Context(), "system_settlement_ngn")
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			respondWithError(w, 404, "system settlement account not found")
+			return
+		}
+		respondWithError(w, 500, fmt.Sprintf("Error looking up system settlement account: %v", err))
 		return
 	}
 	DestinationAccountID, err := StringtoPgUuid(params.DestinationAccountID)
@@ -114,26 +123,23 @@ func (api *ApiConfig) HandleDeposite(w http.ResponseWriter, r *http.Request) {
 		if !check.ShouldProceed {
 			return fmt.Errorf("idem response %v, status code %v ", check.CachedResponse, check.StatusCode)
 		}
+		systemSettleAcct, err := q.GetAccountByIDForUpdate(r.Context(), systemAcct.ID)
+		if err != nil {
+			return fmt.Errorf("Error looking up system settlement account: %v", err)
+		}
 		destAcct, err := q.GetAccountByIDForUpdate(r.Context(), DestinationAccountID)
 		if err != nil {
-			return fmt.Errorf("Error looking up source account: %v", err)
+			return fmt.Errorf("Error looking up destination account: %v", err)
 		}
 		balance, err := q.GetBalanceProjectionForUpdate(r.Context(), db.GetBalanceProjectionForUpdateParams{
 			AccountID:    destAcct.ID,
 			CurrencyCode: destAcct.CurrencyCode,
 			BalanceKind:  "available",
 		})
-		settlementAcct, err := q.GetAccountByExternalRef(r.Context(), fmt.Sprintf("settlement-%s", params.CurrencyCode))
-		if err != nil {
-			if errors.Is(err, pgx.ErrNoRows) {
-				return fmt.Errorf("settlement account not found for currency: %s", params.CurrencyCode)
-			}
-			return fmt.Errorf("Error looking up settlement account: %v", err)
-		}
 		trf, err := q.CreateTransferRequest(r.Context(), db.CreateTransferRequestParams{
 			IdempotencyKeyID:     idempotencyKey,
 			CustomerID:           customer.ID,
-			SourceAccountID:      settlementAcct.ID,
+			SourceAccountID:      systemSettleAcct.ID,
 			DestinationAccountID: DestinationAccount.ID,
 			CurrencyCode:         params.CurrencyCode,
 			Amount:               amount,
@@ -163,7 +169,7 @@ func (api *ApiConfig) HandleDeposite(w http.ResponseWriter, r *http.Request) {
 			return fmt.Errorf("Error creating journal transaction: %v", err)
 		}
 		legs := []JournalLeg{
-			{AccountID: settlementAcct.ID, Amount: amount, Side: "debit"},
+			{AccountID: systemSettleAcct.ID, Amount: amount, Side: "debit"},
 			{AccountID: destAcct.ID, Amount: amount, Side: "credit"},
 		}
 		err = ValidateLedgerBalance(legs)

@@ -108,6 +108,15 @@ func (api *ApiConfig) HandleCreateTransfer(w http.ResponseWriter, r *http.Reques
 		respondWithError(w, 500, fmt.Sprintf("Error looking up destination account: %v", err))
 		return
 	}
+	systemAcct, err := api.Db.Queries.GetAccountByExternalRef(r.Context(), "system_fee_revenue_ngn")
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			respondWithError(w, 404, "system fee account not found")
+			return
+		}
+		respondWithError(w, 500, fmt.Sprintf("Error looking up system fee account: %v", err))
+		return
+	}
 	if sourceAccount.CurrencyCode != params.CurrencyCode || destinationAccount.CurrencyCode != params.CurrencyCode {
 		respondWithError(w, 400, "currency code does not match account currency")
 		return
@@ -150,6 +159,10 @@ func (api *ApiConfig) HandleCreateTransfer(w http.ResponseWriter, r *http.Reques
 		destinationAcct, err := q.GetAccountByIDForUpdate(r.Context(), destAccountID)
 		if err != nil {
 			return fmt.Errorf("Error looking up destination account: %v", err)
+		}
+		systemFeeAcct, err := q.GetAccountByIDForUpdate(r.Context(), systemAcct.ID)
+		if err != nil {
+			return fmt.Errorf("Error looking up system fee account: %v", err)
 		}
 		balance, err := q.GetBalanceProjectionForUpdate(r.Context(), db.GetBalanceProjectionForUpdateParams{
 			AccountID:    sourceAcct.ID,
@@ -218,7 +231,7 @@ func (api *ApiConfig) HandleCreateTransfer(w http.ResponseWriter, r *http.Reques
 		}
 		if fee.IsPositive() {
 			legs = append(legs, JournalLeg{
-				AccountID: destAccountID, // Supposed to be system fee account to be configured later
+				AccountID: systemFeeAcct.ID, // Supposed to be system fee account to be configured later
 				Amount:    feeAmount,
 				Side:      "credit",
 			})
