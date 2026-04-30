@@ -40,6 +40,7 @@ type Querier interface {
 	GetAccountByIDForUpdate(ctx context.Context, id pgtype.UUID) (Account, error)
 	GetAccountByIDForUpdateSkipLocked(ctx context.Context, id pgtype.UUID) (Account, error)
 	GetAccountByNumber(ctx context.Context, accountNumber string) (Account, error)
+	GetActiveHoldByTransferRequestID(ctx context.Context, transferRequestID pgtype.UUID) (FundsHold, error)
 	GetActiveHoldsForAccount(ctx context.Context, accountID pgtype.UUID) ([]FundsHold, error)
 	GetBalanceProjection(ctx context.Context, arg GetBalanceProjectionParams) (BalanceProjection, error)
 	// Balance projection: lock row for update
@@ -76,6 +77,7 @@ type Querier interface {
 	UpdateAccountStatus(ctx context.Context, arg UpdateAccountStatusParams) (Account, error)
 	UpdateCustomerStatus(ctx context.Context, arg UpdateCustomerStatusParams) (Customer, error)
 	UpdateIdempotencyKeyResponse(ctx context.Context, arg UpdateIdempotencyKeyResponseParams) (IdempotencyKey, error)
+	UpdateTransferRequestExternalRef(ctx context.Context, arg UpdateTransferRequestExternalRefParams) (TransferRequest, error)
 	UpdateTransferRequestStatus(ctx context.Context, arg UpdateTransferRequestStatusParams) (TransferRequest, error)
 	// Params: account_id, currency_code, balance_kind, ledger_balance, available_balance, held_balance, last_tx_id, last_line_id, expected_version
 	UpsertBalanceProjectionWithExpectedVersion(ctx context.Context, arg UpsertBalanceProjectionWithExpectedVersionParams) error

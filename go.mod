@@ -11,6 +11,7 @@ require (
 	github.com/lib/pq v1.12.3
 	github.com/redis/go-redis/v9 v9.18.0
 	github.com/shopspring/decimal v1.4.0
+	github.com/sony/gobreaker v1.0.0
 	github.com/swaggo/swag v1.16.6
 )
 

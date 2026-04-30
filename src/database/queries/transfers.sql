@@ -22,3 +22,9 @@ SET status = @status::transfer_request_status,
     posted_at = CASE WHEN @status::transfer_request_status = 'posted' THEN now() ELSE posted_at END
 WHERE id = @id::uuid
 RETURNING *;
+
+-- name: UpdateTransferRequestExternalRef :one
+UPDATE transfer_requests
+SET external_reference = @external_reference
+WHERE id = @id::uuid
+RETURNING *;

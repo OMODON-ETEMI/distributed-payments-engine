@@ -208,6 +208,51 @@ func (q *Queries) ListTransferRequestsByCustomer(ctx context.Context, arg ListTr
 	return items, nil
 }
 
+const updateTransferRequestExternalRef = `-- name: UpdateTransferRequestExternalRef :one
+UPDATE transfer_requests
+SET external_reference = $1
+WHERE id = $2::uuid
+RETURNING id, idempotency_key_id, customer_id, source_account_id, destination_account_id, currency_code, amount, fee_amount, status, client_reference, external_reference, failure_code, failure_reason, metadata, requested_at, reserved_at, submitted_at, posted_at, rejected_at, cancelled_at, expired_at, failed_at, created_at, updated_at, deleted_at
+`
+
+type UpdateTransferRequestExternalRefParams struct {
+	ExternalReference pgtype.Text `json:"external_reference"`
+	ID                pgtype.UUID `json:"id"`
+}
+
+func (q *Queries) UpdateTransferRequestExternalRef(ctx context.Context, arg UpdateTransferRequestExternalRefParams) (TransferRequest, error) {
+	row := q.db.QueryRow(ctx, updateTransferRequestExternalRef, arg.ExternalReference, arg.ID)
+	var i TransferRequest
+	err := row.Scan(
+		&i.ID,
+		&i.IdempotencyKeyID,
+		&i.CustomerID,
+		&i.SourceAccountID,
+		&i.DestinationAccountID,
+		&i.CurrencyCode,
+		&i.Amount,
+		&i.FeeAmount,
+		&i.Status,
+		&i.ClientReference,
+		&i.ExternalReference,
+		&i.FailureCode,
+		&i.FailureReason,
+		&i.Metadata,
+		&i.RequestedAt,
+		&i.ReservedAt,
+		&i.SubmittedAt,
+		&i.PostedAt,
+		&i.RejectedAt,
+		&i.CancelledAt,
+		&i.ExpiredAt,
+		&i.FailedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.DeletedAt,
+	)
+	return i, err
+}
+
 const updateTransferRequestStatus = `-- name: UpdateTransferRequestStatus :one
 UPDATE transfer_requests
 SET status = $1::transfer_request_status,

@@ -6,8 +6,9 @@ import (
 )
 
 type ApiConfig struct {
-	Db    *database.Db
-	Redis *redis.Client
+	Db     *database.Db
+	Redis  *redis.Client
+	Router *PaymentRouter
 }
 
 func NewRedis() *redis.Client {

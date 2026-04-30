@@ -21,3 +21,10 @@ UPDATE funds_holds
 SET status = 'consumed', captured_at = now(), captured_amount = captured_amount + @amount::numeric(20,8), remaining_amount = remaining_amount - @amount::numeric(20,8)
 WHERE id = @id::uuid AND status = 'active' AND remaining_amount >= @amount::numeric(20,8)
 RETURNING *;
+
+-- name: GetActiveHoldByTransferRequestID :one
+SELECT * FROM funds_holds
+WHERE transfer_request_id = @transfer_request_id::uuid
+  AND status = 'active'
+LIMIT 1
+FOR UPDATE;

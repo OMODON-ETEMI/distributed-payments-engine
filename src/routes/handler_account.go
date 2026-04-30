@@ -93,62 +93,62 @@ func (api *ApiConfig) HandleCreateAccount(w http.ResponseWriter, r *http.Request
 	respondeWithJson(w, 200, AccountResponseObject(account))
 }
 
-func (api *ApiConfig) HandleGetAccountByExternalRef(w http.ResponseWriter, r *http.Request) {
-	decoder := json.NewDecoder(r.Body)
-	params := AccountParameters{}
-	err := decoder.Decode(&params)
-	if err != nil {
-		respondWithError(w, 400, fmt.Sprintf("Error parsing Json: %v", err))
-		return
-	}
-	if params.ExternalRef == "" {
-		respondWithError(w, 400, "external_ref is required")
-		return
-	}
+// func (api *ApiConfig) HandleGetAccountByExternalRef(w http.ResponseWriter, r *http.Request) {
+// 	decoder := json.NewDecoder(r.Body)
+// 	params := AccountParameters{}
+// 	err := decoder.Decode(&params)
+// 	if err != nil {
+// 		respondWithError(w, 400, fmt.Sprintf("Error parsing Json: %v", err))
+// 		return
+// 	}
+// 	if params.ExternalRef == "" {
+// 		respondWithError(w, 400, "external_ref is required")
+// 		return
+// 	}
 
-	account, err := api.Db.Queries.GetAccountByExternalRef(r.Context(), params.ExternalRef)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			respondWithError(w, 404, "Account not found")
-			return
-		}
-		respondWithError(w, 500, fmt.Sprintf("Error getting Account by External Ref: %v", err))
-		return
-	}
+// 	account, err := api.Db.Queries.GetAccountByExternalRef(r.Context(), params.ExternalRef)
+// 	if err != nil {
+// 		if errors.Is(err, pgx.ErrNoRows) {
+// 			respondWithError(w, 404, "Account not found")
+// 			return
+// 		}
+// 		respondWithError(w, 500, fmt.Sprintf("Error getting Account by External Ref: %v", err))
+// 		return
+// 	}
 
-	respondeWithJson(w, 200, AccountResponseObject(account))
-}
+// 	respondeWithJson(w, 200, AccountResponseObject(account))
+// }
 
-func (api *ApiConfig) HandleGetAccountByID(w http.ResponseWriter, r *http.Request) {
-	decoder := json.NewDecoder(r.Body)
-	params := AccountParameters{}
-	err := decoder.Decode(&params)
-	if err != nil {
-		respondWithError(w, 400, fmt.Sprintf("Error parsing Json: %v", err))
-		return
-	}
-	if params.ID == "" {
-		respondWithError(w, 400, "ID is required")
-		return
-	}
+// func (api *ApiConfig) HandleGetAccountByID(w http.ResponseWriter, r *http.Request) {
+// 	decoder := json.NewDecoder(r.Body)
+// 	params := AccountParameters{}
+// 	err := decoder.Decode(&params)
+// 	if err != nil {
+// 		respondWithError(w, 400, fmt.Sprintf("Error parsing Json: %v", err))
+// 		return
+// 	}
+// 	if params.CustomerID == "" {
+// 		respondWithError(w, 400, "customer ID is required")
+// 		return
+// 	}
 
-	id, err := StringtoPgUuid(params.ID)
-	if err != nil {
-		respondWithError(w, 400, fmt.Sprintf("Error parsing ID: %v", err))
-		return
-	}
+// 	id, err := StringtoPgUuid(params.CustomerID)
+// 	if err != nil {
+// 		respondWithError(w, 400, fmt.Sprintf("Error parsing ID: %v", err))
+// 		return
+// 	}
 
-	account, err := api.Db.Queries.GetAccountByID(r.Context(), id)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			respondWithError(w, 404, "Account not found")
-			return
-		}
-		respondWithError(w, 500, fmt.Sprintf("Error getting Account by ID: %v", err))
-		return
-	}
-	respondeWithJson(w, 200, AccountResponseObject(account))
-}
+// 	account, err := api.Db.Queries.GetAccountByID(r.Context(), id)
+// 	if err != nil {
+// 		if errors.Is(err, pgx.ErrNoRows) {
+// 			respondWithError(w, 404, "Account not found")
+// 			return
+// 		}
+// 		respondWithError(w, 500, fmt.Sprintf("Error getting Account by ID: %v", err))
+// 		return
+// 	}
+// 	respondeWithJson(w, 200, AccountResponseObject(account))
+// }
 
 func (api *ApiConfig) HandleGetAccountByAccountNumber(w http.ResponseWriter, r *http.Request) {
 	decoder := json.NewDecoder(r.Body)

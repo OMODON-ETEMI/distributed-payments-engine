@@ -119,6 +119,42 @@ func (q *Queries) CreateHold(ctx context.Context, arg CreateHoldParams) (FundsHo
 	return i, err
 }
 
+const getActiveHoldByTransferRequestID = `-- name: GetActiveHoldByTransferRequestID :one
+SELECT id, account_id, transfer_request_id, journal_transaction_id, idempotency_key_id, status, currency_code, amount, remaining_amount, released_amount, captured_amount, reason_code, reason, expires_at, captured_at, released_at, cancelled_at, created_at, updated_at, deleted_at FROM funds_holds
+WHERE transfer_request_id = $1::uuid
+  AND status = 'active'
+LIMIT 1
+FOR UPDATE
+`
+
+func (q *Queries) GetActiveHoldByTransferRequestID(ctx context.Context, transferRequestID pgtype.UUID) (FundsHold, error) {
+	row := q.db.QueryRow(ctx, getActiveHoldByTransferRequestID, transferRequestID)
+	var i FundsHold
+	err := row.Scan(
+		&i.ID,
+		&i.AccountID,
+		&i.TransferRequestID,
+		&i.JournalTransactionID,
+		&i.IdempotencyKeyID,
+		&i.Status,
+		&i.CurrencyCode,
+		&i.Amount,
+		&i.RemainingAmount,
+		&i.ReleasedAmount,
+		&i.CapturedAmount,
+		&i.ReasonCode,
+		&i.Reason,
+		&i.ExpiresAt,
+		&i.CapturedAt,
+		&i.ReleasedAt,
+		&i.CancelledAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.DeletedAt,
+	)
+	return i, err
+}
+
 const getActiveHoldsForAccount = `-- name: GetActiveHoldsForAccount :many
 SELECT id, account_id, transfer_request_id, journal_transaction_id, idempotency_key_id, status, currency_code, amount, remaining_amount, released_amount, captured_amount, reason_code, reason, expires_at, captured_at, released_at, cancelled_at, created_at, updated_at, deleted_at FROM funds_holds WHERE account_id = $1::uuid AND status = 'active' ORDER BY created_at DESC
 `

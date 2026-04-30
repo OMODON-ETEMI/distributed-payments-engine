@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"math/big"
 	"time"
@@ -138,3 +139,5 @@ func ValidateLedgerBalance(legs []JournalLeg) error {
 
 	return nil
 }
+
+var ErrAlreadyProcessed = errors.New("already processed")

@@ -31,10 +31,15 @@ type TransferParams struct {
 	Metadata             map[string]interface{} `json:"metadata"`
 }
 type JournalLeg struct {
-	AccountID pgtype.UUID
-	Amount    pgtype.Numeric
-	Side      string
-	Type      string
+	AccountID   pgtype.UUID
+	Amount      pgtype.Numeric
+	BalanceKind string
+	Side        string
+	Type        string
+}
+
+type GetTransferByIDParams struct {
+	TransferID string `json:"transfer_id"`
 }
 
 func (api *ApiConfig) HandleCreateTransfer(w http.ResponseWriter, r *http.Request) {
@@ -144,6 +149,7 @@ func (api *ApiConfig) HandleCreateTransfer(w http.ResponseWriter, r *http.Reques
 	}
 
 	var trf db.TransferRequest
+	var jtx db.JournalTransaction
 	err = api.Db.ExecTx(r.Context(), func(q *db.Queries) error {
 		check, err := api.IdemCheck(r.Context(), params.IdempotencyKeyID, params.CustomerID, requestHash, "transfer_create")
 		if err != nil {
@@ -371,7 +377,32 @@ func (api *ApiConfig) HandleCreateTransfer(w http.ResponseWriter, r *http.Reques
 		respondWithError(w, 500, fmt.Sprintf("transfer failed: %v", err))
 		return
 	}
-	respondeWithJson(w, 201, trf)
+	respondeWithJson(w, 201, ToTransferResponse(trf, &jtx))
 	return
 
+}
+
+func (api *ApiConfig) GetTransferbyID(w http.ResponseWriter, r *http.Request) {
+	decoder := json.NewDecoder(r.Body)
+	params := GetTransferByIDParams{}
+	if err := decoder.Decode(&params); err != nil {
+		respondWithError(w, 404, fmt.Sprintf("Error parsing json: %v", err))
+		return
+	}
+	transferID, err := StringtoPgUuid(params.TransferID)
+	if err != nil {
+		respondWithError(w, 404, fmt.Sprintf("Error parsing ID to type PGUUID: %v", err))
+		return
+	}
+	transfer, err := api.Db.Queries.GetTransferRequestByID(r.Context(), transferID)
+	if err != nil {
+		respondWithError(w, 500, fmt.Sprintf("Error reading transfer from the database: %v", err))
+		return
+	}
+	journalTransaction, err := api.Db.Queries.GetJournalTransactionByRef(r.Context(), params.TransferID)
+	if err != nil {
+		respondWithError(w, 500, fmt.Sprintf("Error looking up journal transaction: %v", err))
+		return
+	}
+	respondeWithJson(w, 201, ToTransferResponse(transfer, &journalTransaction))
 }

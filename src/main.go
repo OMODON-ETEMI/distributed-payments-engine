@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"time"
 
 	_ "github.com/OMODON-ETEMI/distributed-payments-engine/docs"
 	// db "github.com/OMODON-ETEMI/distributed-payments-engine/src/database/gen"
@@ -38,9 +39,29 @@ func main() {
 	}
 	defer connPool.Close()
 
-	api := &routes.ApiConfig{
-		Db: database.NewDb(connPool),
+	// Initialize Redis client
+	redisClient := routes.NewRedis()
+
+	// Configure and create the MockProvider
+	mockProvider := routes.NewMockProvider("paystack", 0.3) // 30% failure rate for testing
+
+	// Configure the Circuit Breaker for the MockProvider
+	breakerConfig := routes.BreakerConfig{
+		MaxRequests:              1,
+		Interval:                 5 * time.Second,
+		Timeout:                  10 * time.Second,
+		ConsecutiveFailThreshold: 3, // Trip after 3 consecutive failures
 	}
+	mockProviderBreaker := routes.NewProviderBreaker(mockProvider, breakerConfig)
+
+	api := &routes.ApiConfig{
+		Db:     database.NewDb(connPool),
+		Redis:  redisClient,
+		Router: routes.NewPaymentRouter([]*routes.ProviderBreaker{mockProviderBreaker}),
+	}
+
+	// Link the provider back to the API config for webhook simulation
+	mockProvider.Api = api
 
 	router := chi.NewRouter()
 
@@ -57,18 +78,18 @@ func main() {
 	v1Router.Get("/healthz", routes.HandleReadiness)
 	v1Router.Get("/err", routes.HandleError)
 	v1Router.Post("/create/user", api.HandleCreateUser)
-	v1Router.Get("/user/{external_ref}", api.HandleGetUserByExternalRef)
 	v1Router.Get("/user/{id}", api.HandleGetUserById)
 	v1Router.Post("/list/users", api.HandleListCustomers)
 	v1Router.Post("/create/account", api.HandleCreateAccount)
-	v1Router.Get("/account/{external_ref}", api.HandleGetAccountByExternalRef)
-	v1Router.Get("/account/{id}", api.HandleGetAccountByID)
 	v1Router.Get("/account/number/{number}", api.HandleGetAccountByAccountNumber)
 	v1Router.Post("/list/accounts/customer", api.HandleListAccountByCustomer)
 	v1Router.Get("/account/{id}/balances", api.HandleGetBalancesForAccount)
-	v1Router.Get("/list/journal/lines", api.HandleListJournalLinesForTransaction)
+	v1Router.Get("/account/{id}/deposite", api.HandleDeposite)
+	v1Router.Get("/account/{id}/withdraw", api.HandleWithdraw)
+	v1Router.Get("/transfer/{id}", api.GetTransferbyID)
 	v1Router.Post("/update/user", api.HandleUserUpdateStatus)
 	v1Router.Post("/update/account", api.HandleUpdateAccountStatus)
+	v1Router.Post("/webhook/paystack", api.HandlePaystackWebhook)
 	router.Mount("/v1", v1Router)
 
 	srv := &http.Server{
