@@ -75,7 +75,7 @@ func main() {
 	}))
 
 	v1Router := chi.NewRouter()
-	v1Router.Get("/healthz", routes.HandleReadiness)
+	// v1Router.Get("/healthz", routes.HandleReadiness)
 	v1Router.Get("/err", routes.HandleError)
 	v1Router.Post("/create/user", api.HandleCreateUser)
 	v1Router.Get("/user/{id}", api.HandleGetUserById)
@@ -90,6 +90,9 @@ func main() {
 	v1Router.Post("/update/user", api.HandleUserUpdateStatus)
 	v1Router.Post("/update/account", api.HandleUpdateAccountStatus)
 	v1Router.Post("/webhook/paystack", api.HandlePaystackWebhook)
+	// Admin Endpoints
+	v1Router.Get("/admin/hold/{transfer_id}", api.GetHoldBytransferRequest)
+	v1Router.Post("/admin/hold/consume", api.ConsumeHold)
 	router.Mount("/v1", v1Router)
 
 	srv := &http.Server{

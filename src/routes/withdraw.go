@@ -39,7 +39,7 @@ func (api *ApiConfig) HandleWithdraw(w http.ResponseWriter, r *http.Request) {
 		respondWithError(w, 500, fmt.Sprintf("Error reading request body: %v", err))
 		return
 	}
-	requestHash := hashRequest(bodyBytes)
+	requestHash := HashRequest(bodyBytes)
 
 	r.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
 	decoder := json.NewDecoder(r.Body)

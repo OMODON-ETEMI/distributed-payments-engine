@@ -90,7 +90,7 @@ func StringToNumeric(s string) (pgtype.Numeric, error) {
 	return n, err
 }
 
-func hashRequest(body []byte) string {
+func HashRequest(body []byte) string {
 	h := sha256.Sum256(body)
 	return hex.EncodeToString(h[:])
 }
