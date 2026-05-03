@@ -8,6 +8,7 @@ import (
 	"time"
 
 	database "github.com/OMODON-ETEMI/distributed-payments-engine/src/database/gen"
+	"github.com/go-chi/chi"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 )
@@ -34,9 +35,12 @@ func (api *ApiConfig) HandleCreateAccount(w http.ResponseWriter, r *http.Request
 		respondWithError(w, 400, fmt.Sprintf("Error parsing Json: %v", err))
 		return
 	}
-	if params.ExternalRef == "" || params.AccountNumber == "" || params.CustomerID == "" || params.AccountType == "" || params.CurrencyCode == "" {
-		respondWithError(w, 400, "missing required fields: external_ref, account_number, customer_id, account_type, currency_code")
+	if params.ExternalRef == "" || params.AccountNumber == "" || params.CustomerID == "" || params.AccountType == "" || params.CurrencyCode == "" || params.LedgerNormalSide == "" {
+		respondWithError(w, 400, "missing required fields: external_ref, account_number, customer_id, account_type, currency_code, ledger_normal_side")
 		return
+	}
+	if params.Metadata == nil {
+		params.Metadata = make(map[string]interface{})
 	}
 	metadataBytes, err := json.Marshal(params.Metadata)
 	if err != nil {
@@ -93,77 +97,14 @@ func (api *ApiConfig) HandleCreateAccount(w http.ResponseWriter, r *http.Request
 	respondeWithJson(w, 200, AccountResponseObject(account))
 }
 
-// func (api *ApiConfig) HandleGetAccountByExternalRef(w http.ResponseWriter, r *http.Request) {
-// 	decoder := json.NewDecoder(r.Body)
-// 	params := AccountParameters{}
-// 	err := decoder.Decode(&params)
-// 	if err != nil {
-// 		respondWithError(w, 400, fmt.Sprintf("Error parsing Json: %v", err))
-// 		return
-// 	}
-// 	if params.ExternalRef == "" {
-// 		respondWithError(w, 400, "external_ref is required")
-// 		return
-// 	}
-
-// 	account, err := api.Db.Queries.GetAccountByExternalRef(r.Context(), params.ExternalRef)
-// 	if err != nil {
-// 		if errors.Is(err, pgx.ErrNoRows) {
-// 			respondWithError(w, 404, "Account not found")
-// 			return
-// 		}
-// 		respondWithError(w, 500, fmt.Sprintf("Error getting Account by External Ref: %v", err))
-// 		return
-// 	}
-
-// 	respondeWithJson(w, 200, AccountResponseObject(account))
-// }
-
-// func (api *ApiConfig) HandleGetAccountByID(w http.ResponseWriter, r *http.Request) {
-// 	decoder := json.NewDecoder(r.Body)
-// 	params := AccountParameters{}
-// 	err := decoder.Decode(&params)
-// 	if err != nil {
-// 		respondWithError(w, 400, fmt.Sprintf("Error parsing Json: %v", err))
-// 		return
-// 	}
-// 	if params.CustomerID == "" {
-// 		respondWithError(w, 400, "customer ID is required")
-// 		return
-// 	}
-
-// 	id, err := StringtoPgUuid(params.CustomerID)
-// 	if err != nil {
-// 		respondWithError(w, 400, fmt.Sprintf("Error parsing ID: %v", err))
-// 		return
-// 	}
-
-// 	account, err := api.Db.Queries.GetAccountByID(r.Context(), id)
-// 	if err != nil {
-// 		if errors.Is(err, pgx.ErrNoRows) {
-// 			respondWithError(w, 404, "Account not found")
-// 			return
-// 		}
-// 		respondWithError(w, 500, fmt.Sprintf("Error getting Account by ID: %v", err))
-// 		return
-// 	}
-// 	respondeWithJson(w, 200, AccountResponseObject(account))
-// }
-
 func (api *ApiConfig) HandleGetAccountByAccountNumber(w http.ResponseWriter, r *http.Request) {
-	decoder := json.NewDecoder(r.Body)
-	params := AccountParameters{}
-	err := decoder.Decode(&params)
-	if err != nil {
-		respondWithError(w, 400, fmt.Sprintf("Error parsing Json: %v", err))
-		return
-	}
-	if params.AccountNumber == "" {
+	AccountNumber := chi.URLParam(r, "number")
+	if AccountNumber == "" {
 		respondWithError(w, 400, "Account Number is required")
 		return
 	}
 
-	account, err := api.Db.Queries.GetAccountByNumber(r.Context(), params.AccountNumber)
+	account, err := api.Db.Queries.GetAccountByNumber(r.Context(), AccountNumber)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			respondWithError(w, 404, "Account not found")

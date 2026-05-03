@@ -1,11 +1,11 @@
 package routes
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 
+	"github.com/go-chi/chi"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -14,18 +14,12 @@ type BalanceParameters struct {
 }
 
 func (api *ApiConfig) HandleGetBalancesForAccount(w http.ResponseWriter, r *http.Request) {
-	decoder := json.NewDecoder(r.Body)
-	params := BalanceParameters{}
-	err := decoder.Decode(&params)
-	if err != nil {
-		respondWithError(w, 400, fmt.Sprintf("Error parsing Json: %v", err))
-		return
-	}
-	if params.AccountID == "" {
+	AccountID := chi.URLParam(r, "id")
+	if AccountID == "" {
 		respondWithError(w, 400, "account_id is required")
 		return
 	}
-	id, err := StringtoPgUuid(params.AccountID)
+	id, err := StringtoPgUuid(AccountID)
 	if err != nil {
 		respondWithError(w, 400, fmt.Sprintf("Error parsing ID: %v", err))
 		return
@@ -49,7 +43,7 @@ func (api *ApiConfig) HandleGetBalancesForAccount(w http.ResponseWriter, r *http
 	}
 	out := make([]BalanceResponse, 0, len(balances))
 	for _, b := range balances {
-		out = append(out, ToBalanceResponse(params.AccountID, Acct.CurrencyCode, b))
+		out = append(out, ToBalanceResponse(AccountID, Acct.CurrencyCode, b))
 	}
 	respondeWithJson(w, 200, out)
 }

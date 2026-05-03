@@ -50,6 +50,9 @@ func (api *ApiConfig) HandleDeposite(w http.ResponseWriter, r *http.Request) {
 		respondWithError(w, 400, "missing required fields: idempotency_key_id, customer_id, destination_account_id, currency_code")
 		return
 	}
+	if params.Metadata == nil {
+		params.Metadata = make(map[string]interface{})
+	}
 	customerID, err := StringtoPgUuid(params.CustomerID)
 	if err != nil {
 		respondWithError(w, 400, fmt.Sprintf("Error parsing customer ID: %v", err))
@@ -269,5 +272,4 @@ func (api *ApiConfig) HandleDeposite(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	respondeWithJson(w, 201, trf)
-	return
 }

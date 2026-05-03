@@ -9,6 +9,7 @@ import (
 	"net/http"
 
 	db "github.com/OMODON-ETEMI/distributed-payments-engine/src/database/gen"
+	"github.com/go-chi/chi"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -65,6 +66,9 @@ func (api *ApiConfig) HandleCreateTransfer(w http.ResponseWriter, r *http.Reques
 	if err != nil {
 		respondWithError(w, 400, fmt.Sprintf("Error parsing idempkey to string: %v", err))
 		return
+	}
+	if params.Metadata == nil {
+		params.Metadata = make(map[string]interface{})
 	}
 	customerID, err := StringtoPgUuid(params.CustomerID)
 	if err != nil {
@@ -138,14 +142,10 @@ func (api *ApiConfig) HandleCreateTransfer(w http.ResponseWriter, r *http.Reques
 	}
 	ClientReference := pgtype.Text{String: params.ClientReference, Valid: params.ClientReference != ""}
 	ExternalReference := pgtype.Text{String: params.ExternalReference, Valid: params.ExternalReference != ""}
-	metaBytes := []byte("null")
-	if params.Metadata != nil {
-		b, err := json.Marshal(params.Metadata)
-		if err != nil {
-			respondWithError(w, 400, fmt.Sprintf("Error parsing metadata: %v", err))
-			return
-		}
-		metaBytes = b
+	metaBytes, err := json.Marshal(params.Metadata)
+	if err != nil {
+		respondWithError(w, 400, fmt.Sprintf("Error parsing metadata: %v", err))
+		return
 	}
 
 	var trf db.TransferRequest
@@ -378,18 +378,15 @@ func (api *ApiConfig) HandleCreateTransfer(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	respondeWithJson(w, 201, ToTransferResponse(trf, &jtx))
-	return
-
 }
 
 func (api *ApiConfig) GetTransferbyID(w http.ResponseWriter, r *http.Request) {
-	decoder := json.NewDecoder(r.Body)
-	params := GetTransferByIDParams{}
-	if err := decoder.Decode(&params); err != nil {
-		respondWithError(w, 404, fmt.Sprintf("Error parsing json: %v", err))
+	transferIDStr := chi.URLParam(r, "id")
+	if transferIDStr == "" {
+		respondWithError(w, 400, "Transfer ID is required")
 		return
 	}
-	transferID, err := StringtoPgUuid(params.TransferID)
+	transferID, err := StringtoPgUuid(transferIDStr)
 	if err != nil {
 		respondWithError(w, 404, fmt.Sprintf("Error parsing ID to type PGUUID: %v", err))
 		return
@@ -399,7 +396,7 @@ func (api *ApiConfig) GetTransferbyID(w http.ResponseWriter, r *http.Request) {
 		respondWithError(w, 500, fmt.Sprintf("Error reading transfer from the database: %v", err))
 		return
 	}
-	journalTransaction, err := api.Db.Queries.GetJournalTransactionByRef(r.Context(), params.TransferID)
+	journalTransaction, err := api.Db.Queries.GetJournalTransactionByRef(r.Context(), transferIDStr)
 	if err != nil {
 		respondWithError(w, 500, fmt.Sprintf("Error looking up journal transaction: %v", err))
 		return

@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	db "github.com/OMODON-ETEMI/distributed-payments-engine/src/database/gen"
+	"github.com/go-chi/chi"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -27,10 +28,12 @@ func (api *ApiConfig) ConsumeHold(w http.ResponseWriter, r *http.Request) {
 	amount, err := StringToNumeric(params.Amount)
 	if err != nil {
 		respondWithError(w, 400, "invalid amount")
+		return
 	}
 	id, err := StringtoPgUuid(params.ID)
 	if err != nil {
 		respondWithError(w, 400, "Error parsing ID")
+		return
 	}
 	_, err = api.Db.Queries.ConsumeHold(r.Context(), db.ConsumeHoldParams{
 		Amount: amount,
@@ -44,17 +47,12 @@ func (api *ApiConfig) ConsumeHold(w http.ResponseWriter, r *http.Request) {
 }
 
 func (api *ApiConfig) GetHoldBytransferRequest(w http.ResponseWriter, r *http.Request) {
-	decoder := json.NewDecoder(r.Body)
-	params := HoldParams{}
-	err := decoder.Decode(&params)
-	if err != nil {
-		respondWithError(w, 400, fmt.Sprintf("Error parsing json: %v", err))
-	}
-	if params.TransferRequestID == "" {
+	TransferRequestID := chi.URLParam(r, "transfer_id")
+	if TransferRequestID == "" {
 		respondWithError(w, 404, "Transfer Request ID is needed ")
 		return
 	}
-	trfId, err := StringtoPgUuid(params.TransferRequestID)
+	trfId, err := StringtoPgUuid(TransferRequestID)
 	if err != nil {
 		respondWithError(w, 400, "Error parsing ID")
 		return

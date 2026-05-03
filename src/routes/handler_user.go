@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	database "github.com/OMODON-ETEMI/distributed-payments-engine/src/database/gen"
+	"github.com/go-chi/chi"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 )
@@ -41,14 +42,16 @@ func (api *ApiConfig) HandleCreateUser(w http.ResponseWriter, r *http.Request) {
 
 	existing, err := api.Db.Queries.GetCustomerByExternalRef(r.Context(), params.ExternalRef)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-		respondWithError(w, 500, fmt.Sprintf("Error checking existing user: %v", err))
+		respondWithError(w, 500, fmt.Sprintf("Internal Server Error: %v", err))
 		return
 	}
 	if err == nil {
 		respondeWithJson(w, 200, UserResponseObject(existing))
 		return
 	}
-
+	if params.Metadata == nil {
+		params.Metadata = make(map[string]interface{})
+	}
 	metadataBytes, err := json.Marshal(params.Metadata)
 	if err != nil {
 		respondWithError(w, 400, fmt.Sprintf("Error parsing metadata: %v", err))
@@ -97,14 +100,12 @@ func (api *ApiConfig) HandleGetUserByExternalRef(w http.ResponseWriter, r *http.
 }
 
 func (api *ApiConfig) HandleGetUserById(w http.ResponseWriter, r *http.Request) {
-	decoder := json.NewDecoder(r.Body)
-	params := parameters{}
-	err := decoder.Decode(&params)
-	if err != nil {
-		respondWithError(w, 400, fmt.Sprintf("Error parsing metadata: %v", err))
+	idStr := chi.URLParam(r, "id")
+	if idStr == "" {
+		respondWithError(w, 400, "User Id is required")
 		return
 	}
-	id, err := StringtoPgUuid(params.ID)
+	id, err := StringtoPgUuid(idStr)
 	if err != nil {
 		respondWithError(w, 400, fmt.Sprintf("Error parsing ID: %v", err))
 		return

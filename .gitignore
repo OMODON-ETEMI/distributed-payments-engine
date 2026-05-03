@@ -1,6 +1,8 @@
 node_modules
 dist
 .env
+.exe
+.vscode
 coverage
 distributed-payments-engine.exe
 distributed-payments-engine.exe.stackdump
