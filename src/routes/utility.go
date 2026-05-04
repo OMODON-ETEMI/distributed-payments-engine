@@ -11,6 +11,7 @@ import (
 
 	db "github.com/OMODON-ETEMI/distributed-payments-engine/src/database/gen"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/shopspring/decimal"
 )
@@ -30,11 +31,10 @@ func (api *ApiConfig) IdemCheck(ctx context.Context, key string, ID string, requ
 	})
 
 	if err == nil {
-		encodeHash := hex.EncodeToString(record.RequestHash)
-		if encodeHash != requestHash {
+		dbHashString := string(record.RequestHash)
+		if dbHashString != requestHash {
 			return IdemResult{}, fmt.Errorf("idempotency key reuse with different payload")
 		}
-
 		return IdemResult{
 			ShouldProceed:  false,
 			CachedResponse: record.ResponseBody,
@@ -42,7 +42,7 @@ func (api *ApiConfig) IdemCheck(ctx context.Context, key string, ID string, requ
 		}, nil
 	}
 
-	ok, err := api.Redis.SetNX(ctx, redisKey, "processing", 1*time.Minute).Result() // Short TTL for lock
+	ok, err := api.Redis.SetNX(ctx, redisKey, "processing", 1*time.Minute).Result()
 	if err != nil {
 		return IdemResult{}, err
 	}
@@ -54,22 +54,50 @@ func (api *ApiConfig) IdemCheck(ctx context.Context, key string, ID string, requ
 	return IdemResult{ShouldProceed: true}, nil
 }
 
-func (api *ApiConfig) saveIdem(ctx context.Context, key string, scope string, userID string, requestHash string, response []byte, statusCode int) error {
-	_, err := api.Db.Queries.CreateIdempotencyKey(ctx, db.CreateIdempotencyKeyParams{
-		IdempotencyKey: key,
-		Scope:          scope,
-		RequestHash:    []byte(requestHash),
-		ResponseCode:   pgtype.Int4{Int32: int32(statusCode), Valid: true},
-		ResponseBody:   response,
-		LockedAt:       pgtype.Timestamptz{Time: time.Now().UTC(), Valid: true},
-		ExpiresAt:      pgtype.Timestamptz{Time: time.Now().Add(24 * time.Hour).UTC(), Valid: true},
+func (api *ApiConfig) saveIdem(ctx context.Context, ID string, key string, id pgtype.UUID, response []byte, statusCode int) error {
+	_, err := api.Db.Queries.UpdateIdempotencyKeyResponse(ctx, db.UpdateIdempotencyKeyResponseParams{
+		ID:           id,
+		ResponseCode: pgtype.Int4{Int32: int32(statusCode), Valid: true},
+		ResponseBody: response,
 	})
 	if err != nil {
 		return err
 	}
-	redisKey := fmt.Sprintf("idem:%v:%v", userID, key)
+	redisKey := fmt.Sprintf("idem:%v:%v", ID, key)
 	api.Redis.Del(ctx, redisKey)
 	return nil
+}
+
+func GetOrCreateBalanceProjection(ctx context.Context, q *db.Queries, accountID pgtype.UUID, currency, kind string) (db.BalanceProjection, error) {
+	bal, err := q.GetBalanceProjectionForUpdate(ctx, db.GetBalanceProjectionForUpdateParams{
+		AccountID:    accountID,
+		CurrencyCode: currency,
+		BalanceKind:  kind,
+	})
+	if err == nil {
+		return bal, nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return db.BalanceProjection{}, err
+	}
+	zero, _ := StringToNumeric("0.00")
+	err = q.UpsertBalanceProjectionWithExpectedVersion(ctx, db.UpsertBalanceProjectionWithExpectedVersionParams{
+		AccountID:        accountID,
+		CurrencyCode:     currency,
+		BalanceKind:      kind,
+		LedgerBalance:    zero,
+		AvailableBalance: zero,
+		HeldBalance:      zero,
+		LastTxID:         pgtype.UUID{Valid: false},
+		LastLineID:       pgtype.UUID{Valid: false},
+		ExpectedVersion:  0,
+	})
+	if err != nil {
+		return db.BalanceProjection{}, err
+	}
+	return q.GetBalanceProjectionForUpdate(ctx, db.GetBalanceProjectionForUpdateParams{
+		AccountID: accountID, CurrencyCode: currency, BalanceKind: kind,
+	})
 }
 
 func StringtoPgUuid(s string) (pgtype.UUID, error) {
@@ -126,10 +154,13 @@ func ValidateLedgerBalance(legs []JournalLeg) error {
 			return fmt.Errorf("invalid amount: %w", err)
 		}
 
-		if leg.Side == "DEBIT" {
+		switch leg.Side {
+		case "debit":
 			sum = sum.Add(decAmount)
-		} else if leg.Side == "CREDIT" {
+		case "credit":
 			sum = sum.Sub(decAmount)
+		default:
+			return fmt.Errorf("invalid side: %s", leg.Side)
 		}
 	}
 

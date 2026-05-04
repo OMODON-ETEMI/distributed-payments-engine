@@ -108,7 +108,8 @@ func (m *MockProvider) TransferResponse(req InitiateRequest) {
 			}
 		}()
 		w := httptest.NewRecorder()
-		r := httptest.NewRequest("POST", "v1/webhook/paystack", bytes.NewReader(payload))
+		r := httptest.NewRequest("POST", "/v1/webhook/paystack", bytes.NewReader(payload))
+		r.Header.Set("X-Paystack-Signature", "mock-signature")
 
 		if m.Api == nil {
 			log.Println("MockProvider: ApiConfig is nil, cannot call webhook")
@@ -116,7 +117,7 @@ func (m *MockProvider) TransferResponse(req InitiateRequest) {
 		}
 
 		m.Api.HandlePaystackWebhook(w, r)
-		log.Printf("Internal webhook simulation finished with status: %d", w.Code)
+		log.Printf("Internal webhook simulation finished with data: %+v", w)
 	}()
 }
 

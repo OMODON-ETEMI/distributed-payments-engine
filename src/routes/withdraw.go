@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"math/big"
 	"net/http"
 	"time"
@@ -48,8 +49,8 @@ func (api *ApiConfig) HandleWithdraw(w http.ResponseWriter, r *http.Request) {
 		respondWithError(w, 400, fmt.Sprintf("Error parsing Json: %v", err))
 		return
 	}
-	if params.IdempotencyKeyID == "" || params.CustomerID == "" || params.SourceAccountID == "" || params.DestinationAccountID == "" || params.CurrencyCode == "" || params.Description == "" {
-		respondWithError(w, 400, "missing required fields: idempotency_key_id, customer_id, source_account_id, destination_account_id, currency_code, description")
+	if params.IdempotencyKeyID == "" || params.CustomerID == "" || params.SourceAccountID == "" || params.CurrencyCode == "" || params.Description == "" {
+		respondWithError(w, 400, "missing required fields: idempotency_key_id, customer_id, source_account_id, currency_code, description")
 		return
 	}
 	if params.Metadata == nil {
@@ -58,11 +59,6 @@ func (api *ApiConfig) HandleWithdraw(w http.ResponseWriter, r *http.Request) {
 	customerID, err := StringtoPgUuid(params.CustomerID)
 	if err != nil {
 		respondWithError(w, 400, fmt.Sprintf("Error parsing customer ID: %v", err))
-		return
-	}
-	idempotencyKey, err := StringtoPgUuid(params.IdempotencyKeyID)
-	if err != nil {
-		respondWithError(w, 400, fmt.Sprintf("Error parsing Idempotency KeyID: %v", err))
 		return
 	}
 	customer, err := api.Db.Queries.GetCustomerByID(r.Context(), customerID)
@@ -107,15 +103,38 @@ func (api *ApiConfig) HandleWithdraw(w http.ResponseWriter, r *http.Request) {
 		}
 		metaBytes = b
 	}
+	check, err := api.IdemCheck(r.Context(), params.IdempotencyKeyID, params.CustomerID, requestHash, "withdraw_create")
+	if err != nil {
+		respondWithError(w, 500, fmt.Sprintf("Error checking idempotency key: %v", err))
+		return
+	}
+	if !check.ShouldProceed {
+		var cachedData TransferResponse
+		err := json.Unmarshal(check.CachedResponse, &cachedData)
+		if err != nil {
+			fmt.Printf("Failed to unmarshal cached response: %v", err)
+			respondeWithJson(w, check.StatusCode, string(check.CachedResponse))
+			return
+		}
+		respondeWithJson(w, check.StatusCode, cachedData)
+		return
+	}
+	idempkey, err := api.Db.Queries.CreateIdempotencyKey(r.Context(), db.CreateIdempotencyKeyParams{
+		IdempotencyKey: params.IdempotencyKeyID,
+		Scope:          "withdraw_create",
+		RequestHash:    []byte(requestHash),
+		ExpiresAt: pgtype.Timestamptz{
+			Time:  time.Now().Add(24 * time.Hour),
+			Valid: true,
+		},
+	})
+	if err != nil {
+		respondWithError(w, 500, fmt.Sprintf("Error creating idempotency key: %v", err))
+		return
+	}
+
 	var trf db.TransferRequest
 	err = api.Db.ExecTx(r.Context(), func(q *db.Queries) error {
-		check, err := api.IdemCheck(r.Context(), params.IdempotencyKeyID, params.CustomerID, requestHash, "withdraw_create")
-		if err != nil {
-			return fmt.Errorf("Error checking idempotency key: %v", err)
-		}
-		if !check.ShouldProceed {
-			return fmt.Errorf("idem response %v, status code %v ", check.CachedResponse, check.StatusCode)
-		}
 		SourceAcct, err := q.GetAccountByIDForUpdate(r.Context(), sourceAccount.ID)
 		if err != nil {
 			return fmt.Errorf("Error looking up source account: %v", err)
@@ -130,21 +149,17 @@ func (api *ApiConfig) HandleWithdraw(w http.ResponseWriter, r *http.Request) {
 			}
 			return fmt.Errorf("Error looking up system settlement account: %v", err)
 		}
-		balance, err := q.GetBalanceProjectionForUpdate(r.Context(), db.GetBalanceProjectionForUpdateParams{
-			AccountID:    SourceAcct.ID,
-			CurrencyCode: SourceAcct.CurrencyCode,
-			BalanceKind:  "available",
-		})
+		balance, err := GetOrCreateBalanceProjection(r.Context(), q, SourceAcct.ID, params.CurrencyCode, "available")
 		if err != nil {
-			return fmt.Errorf("Error looking up balance: %v", err)
+			return fmt.Errorf("getting balance: %w", err)
 		}
 		avail, _ := decimal.NewFromString(NumericToString(balance.AvailableBalance))
 		amt, _ := decimal.NewFromString(NumericToString(amount))
 		if avail.LessThan(amt) {
 			return fmt.Errorf("insufficient funds")
 		}
-		trf, err := q.CreateTransferRequest(r.Context(), db.CreateTransferRequestParams{
-			IdempotencyKeyID:     idempotencyKey,
+		trf, err = q.CreateTransferRequest(r.Context(), db.CreateTransferRequestParams{
+			IdempotencyKeyID:     idempkey.ID,
 			CustomerID:           customer.ID,
 			SourceAccountID:      sourceAccount.ID,
 			DestinationAccountID: settlement.ID,
@@ -154,13 +169,13 @@ func (api *ApiConfig) HandleWithdraw(w http.ResponseWriter, r *http.Request) {
 			Metadata:             metaBytes,
 		})
 		if err != nil {
-			return fmt.Errorf("Error creating transfer request: %w", err)
+			return fmt.Errorf("Error creating transfer request for withdrawal: %w", err)
 		}
 
 		jtx, err := q.CreateJournalTransaction(r.Context(), db.CreateJournalTransactionParams{
 			TransactionRef:    uuid.NewString(),
 			TransferRequestID: trf.ID,
-			IdempotencyKeyID:  idempotencyKey,
+			IdempotencyKeyID:  idempkey.ID,
 			Status:            "pending",
 			EntryType:         "hold",
 			AccountingDate:    pgtype.Date{Time: trf.RequestedAt.Time, Valid: true},
@@ -190,6 +205,7 @@ func (api *ApiConfig) HandleWithdraw(w http.ResponseWriter, r *http.Request) {
 				Side:                 leg.Side,
 				Amount:               leg.Amount,
 				CurrencyCode:         params.CurrencyCode,
+				BalanceKind:          leg.BalanceKind,
 				Memo:                 pgtype.Text{String: "funds reserved for withdrawal", Valid: true},
 				Metadata:             metaBytes,
 			})
@@ -204,7 +220,7 @@ func (api *ApiConfig) HandleWithdraw(w http.ResponseWriter, r *http.Request) {
 			AccountID:            sourceAccount.ID,
 			TransferRequestID:    trf.ID,
 			JournalTransactionID: jtx.ID,
-			IdempotencyKeyID:     idempotencyKey,
+			IdempotencyKeyID:     idempkey.ID,
 			Status:               "active",
 			CurrencyCode:         params.CurrencyCode,
 			Amount:               amount,
@@ -230,7 +246,7 @@ func (api *ApiConfig) HandleWithdraw(w http.ResponseWriter, r *http.Request) {
 		destHeld, _ := decimal.NewFromString(NumericToString(balance.HeldBalance))
 		newDestLedger := destLedger
 		newDestHeld := destHeld.Add(amt)
-		newDestAvail := newDestLedger.Sub(newDestHeld)
+		newDestAvail := newDestLedger.Sub(amt)
 
 		newDestLedgerNum, err := StringToNumeric(newDestLedger.String())
 		newDestAvailNum, err := StringToNumeric(newDestAvail.String())
@@ -254,7 +270,7 @@ func (api *ApiConfig) HandleWithdraw(w http.ResponseWriter, r *http.Request) {
 			return fmt.Errorf("failed to marshal payload: %w", err)
 		}
 
-		if err := api.saveIdem(r.Context(), params.IdempotencyKeyID, "withdraw_create", params.CustomerID, requestHash, payloadBytes, 202); err != nil {
+		if err := api.saveIdem(r.Context(), params.CustomerID, params.IdempotencyKeyID, idempkey.ID, payloadBytes, 202); err != nil {
 			return fmt.Errorf("error saving idempotency key: %w", err)
 		}
 		return nil
@@ -274,8 +290,6 @@ func (api *ApiConfig) HandleWithdraw(w http.ResponseWriter, r *http.Request) {
 		Reason:        params.Description,
 	})
 	if err != nil {
-		// Provider failed to even accept the request.
-		// Manually trigger the failure logic to release the hold immediately.
 		jsonData, _ := json.Marshal(PaystackTransferData{
 			Reference:     trf.ID.String(),
 			Status:        "failed",
@@ -284,6 +298,7 @@ func (api *ApiConfig) HandleWithdraw(w http.ResponseWriter, r *http.Request) {
 		api.handleTransferFailed(w, r, json.RawMessage(jsonData))
 		return
 	}
+	log.Printf("Provider response: %+v", providerResp)
 
 	respondeWithJson(w, 201, struct {
 		Transfer         TransferResponse  `json:"transfer"`
@@ -296,62 +311,53 @@ func (api *ApiConfig) HandleWithdraw(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// func (api *ApiConfig) reverseWithdrawalHold(ctx context.Context, trfID pgtype.UUID, accountID pgtype.UUID, amount pgtype.Numeric, currency string) error {
-// 	return api.Db.ExecTx(ctx, func(q *db.Queries) error {
-// 		// 1. Lock balance projection for update
-// 		balance, err := q.GetBalanceProjectionForUpdate(ctx, db.GetBalanceProjectionForUpdateParams{
-// 			AccountID:    accountID,
-// 			CurrencyCode: currency,
-// 			BalanceKind:  "available",
-// 		})
-// 		if err != nil {
-// 			return fmt.Errorf("lookup balance for reversal: %w", err)
-// 		}
-
-// 		// 2. Calculate reversed balances
-// 		decLedger, _ := decimal.NewFromString(NumericToString(balance.LedgerBalance))
-// 		decHeld, _ := decimal.NewFromString(NumericToString(balance.HeldBalance))
-// 		decAmt, _ := decimal.NewFromString(NumericToString(amount))
-
-// 		newHeld := decHeld.Sub(decAmt)
-// 		newAvail := decLedger.Sub(newHeld) // Available = Ledger - Held
-
-// 		newHeldNum, _ := StringToNumeric(newHeld.String())
-// 		newAvailNum, _ := StringToNumeric(newAvail.String())
-
-// 		// 3. Update projection and transfer status
-// 		err = q.UpsertBalanceProjectionWithExpectedVersion(ctx, db.UpsertBalanceProjectionWithExpectedVersionParams{
-// 			AccountID:        accountID,
-// 			CurrencyCode:     currency,
-// 			BalanceKind:      "available",
-// 			LedgerBalance:    balance.LedgerBalance,
-// 			AvailableBalance: newAvailNum,
-// 			HeldBalance:      newHeldNum,
-// 			ExpectedVersion:  balance.Version,
-// 		})
-// 		if err != nil {
-// 			return fmt.Errorf("updating projection for reversal: %w", err)
-// 		}
-
-// 		_, err = q.UpdateTransferRequestStatus(ctx, db.UpdateTransferRequestStatusParams{
-// 			Status: "reversed",
-// 			ID:     trfID,
-// 		})
-// 		return err
-// 	})
-// }
-
 func (api *ApiConfig) handleTransferFailed(w http.ResponseWriter, r *http.Request, data json.RawMessage) {
 	var transferData PaystackTransferData
+	bodyBytes, err := io.ReadAll(r.Body)
+	if err != nil {
+		respondWithError(w, 500, fmt.Sprintf("Error reading request body: %v", err))
+		return
+	}
+	requestHash := HashRequest(bodyBytes)
 	json.Unmarshal(data, &transferData)
 
 	trfID, _ := StringtoPgUuid(transferData.Reference)
 
-	err := api.Db.ExecTx(r.Context(), func(q *db.Queries) error {
+	check, err := api.IdemCheck(r.Context(), transferData.Reference, transferData.Status, requestHash, "transfer_success")
+	if err != nil {
+		respondWithError(w, 500, fmt.Sprintf("Error checking idempotency key: %v", err))
+		return
+	}
+	if !check.ShouldProceed {
+		var cachedData TransferResponse
+		err := json.Unmarshal(check.CachedResponse, &cachedData)
+		if err != nil {
+			fmt.Printf("Failed to unmarshal cached response: %v", err)
+			respondeWithJson(w, check.StatusCode, string(check.CachedResponse))
+			return
+		}
+		respondeWithJson(w, check.StatusCode, cachedData)
+		return
+	}
+	idempkey, err := api.Db.Queries.CreateIdempotencyKey(r.Context(), db.CreateIdempotencyKeyParams{
+		IdempotencyKey: transferData.Reference,
+		Scope:          "Transfer_failed",
+		RequestHash:    []byte(requestHash),
+		ExpiresAt: pgtype.Timestamptz{
+			Time:  time.Now().Add(24 * time.Hour),
+			Valid: true,
+		},
+	})
+	if err != nil {
+		respondWithError(w, 500, fmt.Sprintf("Error creating idempotency key: %v", err))
+		return
+	}
+
+	err = api.Db.ExecTx(r.Context(), func(q *db.Queries) error {
 
 		trf, err := q.GetTransferRequestByIDForUpdate(r.Context(), trfID)
 		if err != nil {
-			return err
+			return fmt.Errorf("Error getting Transfer by ID %v", err)
 		}
 		if trf.Status == "failed" {
 			return nil
@@ -359,28 +365,26 @@ func (api *ApiConfig) handleTransferFailed(w http.ResponseWriter, r *http.Reques
 
 		hold, err := q.GetActiveHoldByTransferRequestID(r.Context(), trf.ID)
 		if err != nil {
-			return err
+			return fmt.Errorf("Error getting Hold: %v", err)
 		}
-
-		balance, err := q.GetBalanceProjectionForUpdate(r.Context(),
-			db.GetBalanceProjectionForUpdateParams{
-				AccountID:    trf.SourceAccountID,
-				CurrencyCode: trf.CurrencyCode,
-				BalanceKind:  "available",
-			})
-		if err != nil {
-			return err
-		}
-
 		// Release hold — funds return to available
 		_, err = q.ReleaseHold(r.Context(), db.ReleaseHoldParams{
 			ID:     hold.ID,
 			Amount: trf.Amount,
 		})
 		if err != nil {
-			return err
+			return fmt.Errorf("Error releasing Hold: %v", err)
 		}
 
+		balance, err := GetOrCreateBalanceProjection(
+			r.Context(), q,
+			trf.SourceAccountID,
+			trf.CurrencyCode,
+			"available",
+		)
+		if err != nil {
+			return fmt.Errorf("getting balance: %w", err)
+		}
 		// Balance: available ↑, held ↓, ledger unchanged
 		heldDecimal, _ := decimal.NewFromString(NumericToString(balance.HeldBalance))
 		ledgerDecimal, _ := decimal.NewFromString(NumericToString(balance.LedgerBalance))
@@ -405,29 +409,34 @@ func (api *ApiConfig) handleTransferFailed(w http.ResponseWriter, r *http.Reques
 				ExpectedVersion:  balance.Version,
 			})
 		if err != nil {
-			return err
+			return fmt.Errorf("Error Upserting Balance with Expected Version: %v", err)
 		}
 
-		_, err = q.UpdateTransferRequestStatus(r.Context(), db.UpdateTransferRequestStatusParams{
+		trf, err = q.UpdateTransferRequestStatus(r.Context(), db.UpdateTransferRequestStatusParams{
 			ID:     trf.ID,
 			Status: "failed",
 		})
 		if err != nil {
-			return err
+			return fmt.Errorf("Error updating transfer request: %v", err)
 		}
 
-		payload, _ := json.Marshal(map[string]string{
-			"transfer_id":    trf.ID.String(),
-			"failure_reason": trf.FailureReason.String,
-		})
+		transferPayload := ToTransferResponse(trf, nil)
+		payloadBytes, err := json.Marshal(transferPayload)
+		if err != nil {
+			return fmt.Errorf("failed to marshal outbox payload: %w", err)
+		}
+		if err = api.saveIdem(r.Context(), transferData.Status, transferData.Reference, idempkey.ID, payloadBytes, 400); err != nil {
+			return fmt.Errorf("error saving idempotency key: %v", err)
+		}
 		_, err = q.CreateOutboxEvent(r.Context(), db.CreateOutboxEventParams{
-			AggregateType: "transfer_request",
-			AggregateID:   trf.ID,
-			EventType:     "transfer.failed",
-			Payload:       payload,
-			Headers:       []byte("{}"),
+			AggregateType:    "transfer_request",
+			AggregateID:      trf.ID,
+			EventType:        "transfer.failed",
+			IdempotencyKeyID: idempkey.ID,
+			Payload:          payloadBytes,
+			Headers:          []byte("{}"),
 		})
-		return err
+		return fmt.Errorf("Error creating Outboxevent: %v", err)
 	})
 
 	if errors.Is(err, ErrAlreadyProcessed) {
@@ -443,6 +452,12 @@ func (api *ApiConfig) handleTransferFailed(w http.ResponseWriter, r *http.Reques
 
 func (api *ApiConfig) handleTransferSuccess(w http.ResponseWriter, r *http.Request, data json.RawMessage) {
 	var transferData PaystackTransferData
+	bodyBytes, err := io.ReadAll(r.Body)
+	if err != nil {
+		respondWithError(w, 500, fmt.Sprintf("Error reading request body: %v", err))
+		return
+	}
+	requestHash := HashRequest(bodyBytes)
 	if err := json.Unmarshal(data, &transferData); err != nil {
 		respondWithError(w, 400, "invalid transfer data")
 		return
@@ -456,20 +471,46 @@ func (api *ApiConfig) handleTransferSuccess(w http.ResponseWriter, r *http.Reque
 	}
 
 	// zero, _ := StringToNumeric("0.00")
+	check, err := api.IdemCheck(r.Context(), transferData.Reference, transferData.Status, requestHash, "transfer_success")
+	if err != nil {
+		respondWithError(w, 500, fmt.Sprintf("Error checking idempotency key: %v", err))
+		return
+	}
+	if !check.ShouldProceed {
+		var cachedData TransferResponse
+		err := json.Unmarshal(check.CachedResponse, &cachedData)
+		if err != nil {
+			fmt.Printf("Failed to unmarshal cached response: %v", err)
+			respondeWithJson(w, check.StatusCode, string(check.CachedResponse))
+			return
+		}
+		respondeWithJson(w, check.StatusCode, cachedData)
+		return
+	}
+	idempkey, err := api.Db.Queries.CreateIdempotencyKey(r.Context(), db.CreateIdempotencyKeyParams{
+		IdempotencyKey: transferData.Reference,
+		Scope:          "transfer_success",
+		RequestHash:    []byte(requestHash),
+		ExpiresAt: pgtype.Timestamptz{
+			Time:  time.Now().Add(24 * time.Hour),
+			Valid: true,
+		},
+	})
+	if err != nil {
+		respondWithError(w, 500, fmt.Sprintf("Error creating idempotency key: %v", err))
+		return
+	}
 
 	err = api.Db.ExecTx(r.Context(), func(q *db.Queries) error {
 
-		// 1. Lock the transfer request
 		trf, err := q.GetTransferRequestByIDForUpdate(r.Context(), trfID)
 		if err != nil {
 			return fmt.Errorf("transfer not found: %w", err)
 		}
-
-		// Guard: already processed (webhook can arrive twice — Paystack retries)
 		if trf.Status == "posted" {
 			return fmt.Errorf("Transferr already processed")
 		}
-		Meta, err := json.Marshal(map[string]string{"transfer_code": transferData.TransferCode})
+		Meta, err := json.Marshal(map[string]string{"transfer_code": transferData.TransferCode, "status": transferData.Status, "reference": transferData.Reference})
 		if err != nil {
 			return fmt.Errorf("Unable to parse Metadata payload: %w", err)
 		}
@@ -477,25 +518,25 @@ func (api *ApiConfig) handleTransferSuccess(w http.ResponseWriter, r *http.Reque
 		// 2. Get the active hold for this transfer
 		hold, err := q.GetActiveHoldByTransferRequestID(r.Context(), trf.ID)
 		if err != nil {
-			return fmt.Errorf("hold not found: %w", err)
+			return fmt.Errorf("Error Getting Hold: %w", err)
 		}
 
 		// 3. Lock balance projection
-		balance, err := q.GetBalanceProjectionForUpdate(r.Context(),
-			db.GetBalanceProjectionForUpdateParams{
-				AccountID:    trf.SourceAccountID,
-				CurrencyCode: trf.CurrencyCode,
-				BalanceKind:  "available",
-			})
+		balance, err := GetOrCreateBalanceProjection(
+			r.Context(), q,
+			trf.SourceAccountID,
+			trf.CurrencyCode,
+			"available",
+		)
 		if err != nil {
-			return err
+			return fmt.Errorf("Error getting balance: %w", err)
 		}
 
 		// 4. Create the SETTLEMENT journal transaction — the real debit
 		jtx, err := q.CreateJournalTransaction(r.Context(), db.CreateJournalTransactionParams{
 			TransactionRef:    uuid.NewString(),
 			TransferRequestID: trf.ID,
-			IdempotencyKeyID:  trf.IdempotencyKeyID,
+			IdempotencyKeyID:  idempkey.ID,
 			Status:            "pending",
 			EntryType:         "withdrawal",
 			AccountingDate:    pgtype.Date{Time: time.Now(), Valid: true},
@@ -505,13 +546,15 @@ func (api *ApiConfig) handleTransferSuccess(w http.ResponseWriter, r *http.Reque
 			Metadata:          Meta,
 		})
 		if err != nil {
-			return err
+			return fmt.Errorf("Error Creating Journal transaction %v", err)
 		}
 
-		settlementAcct, err := q.GetAccountByExternalRef(r.Context(),
-			fmt.Sprintf("system_settlement_%s", trf.CurrencyCode))
+		settlementAcct, err := q.GetAccountByExternalRef(r.Context(), "system_settlement_ngn")
 		if err != nil {
-			return err
+			if errors.Is(err, pgx.ErrNoRows) {
+				return fmt.Errorf("System settlement account not found")
+			}
+			return fmt.Errorf("Error looking up system settlement account: %v", err)
 		}
 
 		// 5. Journal lines — actual debit of customer, credit settlement
@@ -524,10 +567,10 @@ func (api *ApiConfig) handleTransferSuccess(w http.ResponseWriter, r *http.Reque
 			CurrencyCode:         trf.CurrencyCode,
 			BalanceKind:          "ledger",
 			Memo:                 pgtype.Text{String: "withdrawal settled", Valid: true},
-			Metadata:             nil,
+			Metadata:             Meta,
 		})
 		if err != nil {
-			return err
+			return fmt.Errorf("Error creating journal line: %v", err)
 		}
 
 		journalLine, err := q.CreateJournalLine(r.Context(), db.CreateJournalLineParams{
@@ -539,10 +582,10 @@ func (api *ApiConfig) handleTransferSuccess(w http.ResponseWriter, r *http.Reque
 			CurrencyCode:         trf.CurrencyCode,
 			BalanceKind:          "ledger",
 			Memo:                 pgtype.Text{String: "withdrawal settled", Valid: true},
-			Metadata:             nil,
+			Metadata:             Meta,
 		})
 		if err != nil {
-			return err
+			return fmt.Errorf("Error creating journal line: %v", err)
 		}
 
 		// 6. Consume the hold
@@ -551,13 +594,13 @@ func (api *ApiConfig) handleTransferSuccess(w http.ResponseWriter, r *http.Reque
 			Amount: trf.Amount,
 		})
 		if err != nil {
-			return err
+			return fmt.Errorf("Error consuming hold: %v", err)
 		}
 
 		// 7. Mark journal transaction posted
 		_, err = q.MarkJournalTransactionPosted(r.Context(), jtx.ID)
 		if err != nil {
-			return err
+			return fmt.Errorf("Error marking Journal: %v", err)
 		}
 
 		// 8. Update balance projection — held ↓, ledger ↓, available unchanged
@@ -586,7 +629,7 @@ func (api *ApiConfig) handleTransferSuccess(w http.ResponseWriter, r *http.Reque
 				ExpectedVersion:  balance.Version,
 			})
 		if err != nil {
-			return err
+			return fmt.Errorf("upserting source balance: %w", err)
 		}
 
 		// 9. Update transfer request → posted
@@ -595,29 +638,32 @@ func (api *ApiConfig) handleTransferSuccess(w http.ResponseWriter, r *http.Reque
 			Status: "posted",
 		})
 		if err != nil {
-			return err
+			return fmt.Errorf("updating transfer request status: %w", err)
 		}
-
-		payload, err := json.Marshal(map[string]string{
-			"transfer_id":        trf.ID.String(),
-			"amount":             NumericToString(trf.Amount),
-			"currency":           trf.CurrencyCode,
-			"provider_reference": transferData.TransferCode,
-		})
+		transferPayload := ToTransferResponse(trf, &jtx)
+		payloadBytes, err := json.Marshal(transferPayload)
 		if err != nil {
-			return fmt.Errorf("Unable to parse Metadata payload: %w", err)
+			return fmt.Errorf("failed to marshal payload: %w", err)
 		}
 		header, err := json.Marshal(map[string]string{})
 
+		if err = api.saveIdem(r.Context(), transferData.Status, transferData.Reference, idempkey.ID, payloadBytes, 201); err != nil {
+			return fmt.Errorf("error saving idempotency key: %v", err)
+		}
+
 		// 10. Outbox event — client gets notified via this
 		_, err = q.CreateOutboxEvent(r.Context(), db.CreateOutboxEventParams{
-			AggregateType: "transfer_request",
-			AggregateID:   trf.ID,
-			EventType:     "transfer.posted",
-			Payload:       payload,
-			Headers:       header,
+			AggregateType:    "transfer_request",
+			AggregateID:      trf.ID,
+			EventType:        "transfer.posted",
+			IdempotencyKeyID: trf.IdempotencyKeyID,
+			Payload:          payloadBytes,
+			Headers:          header,
 		})
-		return err
+		if err != nil {
+			return fmt.Errorf("Error creating Outboxevent: %w", err)
+		}
+		return nil
 	})
 
 	if errors.Is(err, ErrAlreadyProcessed) {

@@ -27,7 +27,7 @@ func main() {
 		log.Fatal("PORT is not found in the enviroment")
 	}
 
-	dbUrl := os.Getenv("DB_URL")
+	dbUrl := os.Getenv("e2e_TEST_DB_URL")
 	if dbUrl == "" {
 		log.Fatal("DB_URL is not found in the enviroment")
 	}
@@ -84,8 +84,8 @@ func main() {
 	v1Router.Get("/account/number/{number}", api.HandleGetAccountByAccountNumber)
 	v1Router.Post("/list/accounts/customer", api.HandleListAccountByCustomer)
 	v1Router.Get("/account/{id}/balances", api.HandleGetBalancesForAccount)
-	v1Router.Post("/account/{id}/deposite", api.HandleDeposite)
-	v1Router.Post("/account/{id}/withdraw", api.HandleWithdraw)
+	v1Router.Post("/account/deposite", api.HandleDeposite)
+	v1Router.Post("/account/withdraw", api.HandleWithdraw)
 	v1Router.Post("/account/transfer", api.HandleCreateTransfer)
 	v1Router.Get("/transfer/{id}", api.GetTransferbyID)
 	v1Router.Post("/update/user", api.HandleUserUpdateStatus)
