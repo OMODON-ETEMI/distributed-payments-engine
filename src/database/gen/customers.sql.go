@@ -21,11 +21,11 @@ RETURNING id, external_ref, full_name, email, phone, national_id, status, metada
 type CreateCustomerParams struct {
 	ExternalRef string      `json:"external_ref"`
 	FullName    string      `json:"full_name"`
-	Column3     string      `json:"column_3"`
+	Email       string      `json:"email"`
 	Phone       pgtype.Text `json:"phone"`
 	NationalID  pgtype.Text `json:"national_id"`
-	Column6     interface{} `json:"column_6"`
-	Column7     []byte      `json:"column_7"`
+	Status      string      `json:"status"`
+	Metadata    []byte      `json:"metadata"`
 }
 
 // Customers queries
@@ -33,11 +33,11 @@ func (q *Queries) CreateCustomer(ctx context.Context, arg CreateCustomerParams) 
 	row := q.db.QueryRow(ctx, createCustomer,
 		arg.ExternalRef,
 		arg.FullName,
-		arg.Column3,
+		arg.Email,
 		arg.Phone,
 		arg.NationalID,
-		arg.Column6,
-		arg.Column7,
+		arg.Status,
+		arg.Metadata,
 	)
 	var i Customer
 	err := row.Scan(
@@ -83,8 +83,8 @@ const getCustomerByID = `-- name: GetCustomerByID :one
 SELECT id, external_ref, full_name, email, phone, national_id, status, metadata, created_at, updated_at, deleted_at FROM customers WHERE id = $1::uuid LIMIT 1
 `
 
-func (q *Queries) GetCustomerByID(ctx context.Context, dollar_1 pgtype.UUID) (Customer, error) {
-	row := q.db.QueryRow(ctx, getCustomerByID, dollar_1)
+func (q *Queries) GetCustomerByID(ctx context.Context, id pgtype.UUID) (Customer, error) {
+	row := q.db.QueryRow(ctx, getCustomerByID, id)
 	var i Customer
 	err := row.Scan(
 		&i.ID,
@@ -144,16 +144,16 @@ func (q *Queries) ListCustomers(ctx context.Context, arg ListCustomersParams) ([
 }
 
 const updateCustomerStatus = `-- name: UpdateCustomerStatus :one
-UPDATE customers SET status = $2::customer_status WHERE id = $1::uuid RETURNING id, external_ref, full_name, email, phone, national_id, status, metadata, created_at, updated_at, deleted_at
+UPDATE customers SET status = $1::customer_status WHERE id = $2::uuid RETURNING id, external_ref, full_name, email, phone, national_id, status, metadata, created_at, updated_at, deleted_at
 `
 
 type UpdateCustomerStatusParams struct {
-	Column1 pgtype.UUID `json:"column_1"`
-	Column2 interface{} `json:"column_2"`
+	Status string      `json:"status"`
+	ID     pgtype.UUID `json:"id"`
 }
 
 func (q *Queries) UpdateCustomerStatus(ctx context.Context, arg UpdateCustomerStatusParams) (Customer, error) {
-	row := q.db.QueryRow(ctx, updateCustomerStatus, arg.Column1, arg.Column2)
+	row := q.db.QueryRow(ctx, updateCustomerStatus, arg.Status, arg.ID)
 	var i Customer
 	err := row.Scan(
 		&i.ID,

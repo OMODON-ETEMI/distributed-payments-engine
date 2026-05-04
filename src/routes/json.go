@@ -30,3 +30,6 @@ func respondeWithJson(w http.ResponseWriter, statusCode int, payload interface{}
 	w.WriteHeader(statusCode)
 	w.Write(data)
 }
+
+var RespondWithError = respondWithError
+var RespondWithJson = respondeWithJson

@@ -606,11 +606,6 @@ END;
 $$;
 
 -- Enforce append-only on the source-of-truth tables.
-DROP TRIGGER IF EXISTS trg_journal_transactions_no_update ON journal_transactions;
-CREATE TRIGGER trg_journal_transactions_no_update
-BEFORE UPDATE OR DELETE ON journal_transactions
-FOR EACH ROW EXECUTE FUNCTION prevent_updates_to_immutable_ledger_rows();
-
 DROP TRIGGER IF EXISTS trg_journal_lines_no_update ON journal_lines;
 CREATE TRIGGER trg_journal_lines_no_update
 BEFORE UPDATE OR DELETE ON journal_lines

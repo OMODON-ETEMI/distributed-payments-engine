@@ -13,10 +13,10 @@ type Account struct {
 	CustomerID       pgtype.UUID        `json:"customer_id"`
 	ExternalRef      string             `json:"external_ref"`
 	AccountNumber    string             `json:"account_number"`
-	AccountType      interface{}        `json:"account_type"`
-	Status           interface{}        `json:"status"`
+	AccountType      string             `json:"account_type"`
+	Status           string             `json:"status"`
 	CurrencyCode     string             `json:"currency_code"`
-	LedgerNormalSide interface{}        `json:"ledger_normal_side"`
+	LedgerNormalSide string             `json:"ledger_normal_side"`
 	Metadata         []byte             `json:"metadata"`
 	OpenedAt         pgtype.Timestamptz `json:"opened_at"`
 	ClosedAt         pgtype.Timestamptz `json:"closed_at"`
@@ -30,7 +30,7 @@ type AuditLog struct {
 	ID            pgtype.UUID        `json:"id"`
 	ActorType     string             `json:"actor_type"`
 	ActorID       pgtype.UUID        `json:"actor_id"`
-	Action        interface{}        `json:"action"`
+	Action        string             `json:"action"`
 	EntityType    string             `json:"entity_type"`
 	EntityID      pgtype.UUID        `json:"entity_id"`
 	BeforeState   []byte             `json:"before_state"`
@@ -47,7 +47,7 @@ type BalanceProjection struct {
 	ID                pgtype.UUID        `json:"id"`
 	AccountID         pgtype.UUID        `json:"account_id"`
 	CurrencyCode      string             `json:"currency_code"`
-	BalanceKind       interface{}        `json:"balance_kind"`
+	BalanceKind       string             `json:"balance_kind"`
 	LedgerBalance     pgtype.Numeric     `json:"ledger_balance"`
 	AvailableBalance  pgtype.Numeric     `json:"available_balance"`
 	HeldBalance       pgtype.Numeric     `json:"held_balance"`
@@ -66,7 +66,7 @@ type Customer struct {
 	Email       pgtype.Text        `json:"email"`
 	Phone       pgtype.Text        `json:"phone"`
 	NationalID  pgtype.Text        `json:"national_id"`
-	Status      interface{}        `json:"status"`
+	Status      string             `json:"status"`
 	Metadata    []byte             `json:"metadata"`
 	CreatedAt   pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
@@ -79,7 +79,7 @@ type FundsHold struct {
 	TransferRequestID    pgtype.UUID        `json:"transfer_request_id"`
 	JournalTransactionID pgtype.UUID        `json:"journal_transaction_id"`
 	IdempotencyKeyID     pgtype.UUID        `json:"idempotency_key_id"`
-	Status               interface{}        `json:"status"`
+	Status               string             `json:"status"`
 	CurrencyCode         string             `json:"currency_code"`
 	Amount               pgtype.Numeric     `json:"amount"`
 	RemainingAmount      pgtype.Numeric     `json:"remaining_amount"`
@@ -115,10 +115,10 @@ type JournalLine struct {
 	JournalTransactionID pgtype.UUID        `json:"journal_transaction_id"`
 	LineNumber           int32              `json:"line_number"`
 	AccountID            pgtype.UUID        `json:"account_id"`
-	Side                 interface{}        `json:"side"`
+	Side                 string             `json:"side"`
 	Amount               pgtype.Numeric     `json:"amount"`
 	CurrencyCode         string             `json:"currency_code"`
-	BalanceKind          interface{}        `json:"balance_kind"`
+	BalanceKind          string             `json:"balance_kind"`
 	Memo                 pgtype.Text        `json:"memo"`
 	Metadata             []byte             `json:"metadata"`
 	CreatedAt            pgtype.Timestamptz `json:"created_at"`
@@ -130,7 +130,7 @@ type JournalTransaction struct {
 	TransactionRef          string             `json:"transaction_ref"`
 	TransferRequestID       pgtype.UUID        `json:"transfer_request_id"`
 	IdempotencyKeyID        pgtype.UUID        `json:"idempotency_key_id"`
-	Status                  interface{}        `json:"status"`
+	Status                  string             `json:"status"`
 	EntryType               string             `json:"entry_type"`
 	AccountingDate          pgtype.Date        `json:"accounting_date"`
 	EffectiveAt             pgtype.Timestamptz `json:"effective_at"`
@@ -152,7 +152,7 @@ type OutboxEvent struct {
 	AggregateType    string             `json:"aggregate_type"`
 	AggregateID      pgtype.UUID        `json:"aggregate_id"`
 	EventType        string             `json:"event_type"`
-	Status           interface{}        `json:"status"`
+	Status           string             `json:"status"`
 	IdempotencyKeyID pgtype.UUID        `json:"idempotency_key_id"`
 	Payload          []byte             `json:"payload"`
 	Headers          []byte             `json:"headers"`
@@ -172,7 +172,7 @@ type ReconciliationBatch struct {
 	SourceSystem        string             `json:"source_system"`
 	SourceFileName      pgtype.Text        `json:"source_file_name"`
 	SourceReference     pgtype.Text        `json:"source_reference"`
-	Status              interface{}        `json:"status"`
+	Status              string             `json:"status"`
 	StatementDate       pgtype.Date        `json:"statement_date"`
 	ExpectedTotalAmount pgtype.Numeric     `json:"expected_total_amount"`
 	ExpectedTotalCount  int32              `json:"expected_total_count"`
@@ -194,7 +194,7 @@ type ReconciliationItem struct {
 	JournalTransactionID  pgtype.UUID        `json:"journal_transaction_id"`
 	JournalLineID         pgtype.UUID        `json:"journal_line_id"`
 	ExternalReference     pgtype.Text        `json:"external_reference"`
-	Status                interface{}        `json:"status"`
+	Status                string             `json:"status"`
 	CurrencyCode          string             `json:"currency_code"`
 	Amount                pgtype.Numeric     `json:"amount"`
 	MatchedAmount         pgtype.Numeric     `json:"matched_amount"`
@@ -215,7 +215,7 @@ type TransferRequest struct {
 	CurrencyCode         string             `json:"currency_code"`
 	Amount               pgtype.Numeric     `json:"amount"`
 	FeeAmount            pgtype.Numeric     `json:"fee_amount"`
-	Status               interface{}        `json:"status"`
+	Status               string             `json:"status"`
 	ClientReference      pgtype.Text        `json:"client_reference"`
 	ExternalReference    pgtype.Text        `json:"external_reference"`
 	FailureCode          pgtype.Text        `json:"failure_code"`

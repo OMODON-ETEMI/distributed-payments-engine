@@ -1,22 +1,13 @@
-# Use Node.js v20 LTS image
-FROM node:20-alpine
+FROM golang:1.26.1-alpine AS builder
 
-# Set working directory inside container
-WORKDIR /usr/src/app
+WORKDIR /app
 
-# Copy package.json and package-lock.json first (for caching)
-COPY package*.json ./
+RUN go install github.com/air-verse/air@latest
+RUN go install github.com/swaggo/swag/cmd/swag@latest
 
-# Install dependencies
-RUN npm install
+COPY go.mod go.sum ./
+RUN go mod download
 
-# Copy the rest of the source code
 COPY . .
 
-# Build TypeScript
-RUN npm run build
-
-EXPOSE 3000
-
-# Run production build
-CMD ["npm", "start"]
+RUN go build -o main ./src/main.go

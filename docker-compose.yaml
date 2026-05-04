@@ -1,0 +1,90 @@
+
+services:
+  postgres:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    ports:
+      - "${DB_PORT}:5432"
+    volumes:
+      - distributed_financial_ledger:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  migrate:
+    image: migrate/migrate
+    volumes:
+      - ./src/database/migrations:/migrations
+    command: [
+      "-path",
+      "/migrations",
+      "-database",
+      "postgres://${DB_USER}:${DB_PASSWORD}@postgres:5432/${DB_NAME}?sslmode=disable",
+      "up"
+    ]
+    depends_on:
+      postgres:
+        condition: service_healthy
+  
+  migrate_down:
+    image: migrate/migrate
+    profiles:
+      - tools
+    volumes:
+      - ./src/database/migrations:/migrations
+    command: [
+      "-path",
+      "/migrations",
+      "-database",
+      "postgres://${DB_USER}:${DB_PASSWORD}@postgres:5432/${DB_NAME}?sslmode=disable",
+      "down", "-all"
+    ]
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  payment_service_engine:
+    build: .
+    env_file:
+      - .env
+    environment:
+      DB_HOST: ${DB_HOST}
+      DB_PORT: ${DB_PORT}
+      PORT: ${PORT}
+    ports:
+      - "${PORT}:${PORT}"
+    volumes:
+      - .:/app
+    command: air -c .air.toml
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+  redis: 
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    restart: unless-stopped
+
+  test-db:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: distributed_payments_test
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    restart: unless-stopped
+    ports:
+      - "5433:5432"
+
+
+volumes:
+  distributed_financial_ledger:
+
