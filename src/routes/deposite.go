@@ -274,7 +274,7 @@ func (api *ApiConfig) HandleDeposite(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return fmt.Errorf("failed to marshal outbox headers: %w", err)
 		}
-		partitionKey := pgtype.Text{String: trf.ID.String(), Valid: true}
+		partitionKey := pgtype.Text{String: trf.DestinationAccountID.String(), Valid: true}
 		_, err = q.CreateOutboxEvent(r.Context(), db.CreateOutboxEventParams{
 			AggregateType:    "transfer_request",
 			AggregateID:      trf.ID,

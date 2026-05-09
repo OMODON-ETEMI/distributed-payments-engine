@@ -1,21 +1,41 @@
 package routes
 
 import (
+	"context"
 	"encoding/json"
 	"io"
+	"log"
 	"net/http"
+
+	db "github.com/OMODON-ETEMI/distributed-payments-engine/src/database/gen"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
-type PaystackWebhookBody struct {
+type WebhookBody struct {
 	Event string          `json:"event"`
+	ID    string          `json:"id"`
+	Type  string          `json:"type"`
 	Data  json.RawMessage `json:"data"`
 }
 
-type PaystackTransferData struct {
-	TransferCode  string `json:"transfer_code"`
-	Reference     string `json:"reference"` // this is YOUR transfer_request_id
-	Status        string `json:"status"`
-	FailureReason string `json:"failure_reason"`
+type WebhookTransferData struct {
+	ID            string          `json:"id"`
+	Amount        string          `json:"Amount"`
+	Currency      string          `json:"Currency"`
+	Domain        string          `json:"Domain"`
+	AccountNumber string          `json:"account_number"`
+	BankCode      string          `json:"bank_code"`
+	FullName      string          `json:"full_name"`
+	Customer      json.RawMessage `json:"customer"`
+	Reference     string          `json:"reference"`
+	Status        string          `json:"status"`
+	FailureReason string          `json:"failure_reason"`
+}
+type Customer struct {
+	ID            string `json:"id"`
+	AccountNumber string `json:"account_number"`
+	Email         string `json:"email"`
+	FullName      string `json:"full_name"`
 }
 
 func (api *ApiConfig) HandlePaystackWebhook(w http.ResponseWriter, r *http.Request) {
@@ -34,22 +54,50 @@ func (api *ApiConfig) HandlePaystackWebhook(w http.ResponseWriter, r *http.Reque
 	}
 
 	// 2. Parse event
-	var event PaystackWebhookBody
+	var event WebhookBody
 	if err := json.Unmarshal(body, &event); err != nil {
 		respondWithError(w, 400, "invalid json")
 		return
 	}
 
-	// 3. Route by event type
-	switch event.Event {
-	case "transfer.success":
-		api.handleTransferSuccess(w, r, event.Data)
-	case "transfer.failed", "transfer.reversed":
-		api.handleTransferFailed(w, r, event.Data)
-	default:
-		// Unknown event — acknowledge and ignore
-		// IMPORTANT: always return 200 to Paystack even for unknown events.
-		// If you return non-200, Paystack retries the webhook repeatedly.
-		respondeWithJson(w, 200, map[string]string{"received": "true"})
+	_, err = api.Db.Queries.CreateIncomingWebhook(r.Context(), db.CreateIncomingWebhookParams{
+		Provider:        "paystack",
+		ExternalEventID: pgtype.Text{String: event.ID, Valid: event.ID != ""},
+		EventType:       pgtype.Text{String: event.Type, Valid: event.Type != ""},
+		Payload:         body,
+	})
+	if err != nil {
+		respondWithError(w, 500, "cannot create webhook")
+		return
 	}
+	respondeWithJson(w, 200, map[string]string{"received": "true"})
+
+}
+
+func (api *ApiConfig) HandleWebhookLogic(ctx context.Context, data WebhookBody, webhook db.IncomingWebhook) {
+	var err error
+	switch data.Event {
+	case "transfer.success":
+		err = api.handleTransferSuccess(ctx, nil, data.Data)
+	case "transfer.failed", "transfer.reversed":
+		api.handleTransferFailed(ctx, nil, data.Data)
+	default:
+		// Unknown event — acknowledge and ignore"
+	}
+	if err != nil {
+		log.Printf("Worker failed to process webhook %s: %v", data.ID, err)
+		_, err := api.Db.Queries.UpdateIncomingWebhookStatus(ctx, db.UpdateIncomingWebhookStatusParams{
+			Status:       "failed",
+			ErrorMessage: pgtype.Text{String: err.Error(), Valid: true},
+			ID:           webhook.ID,
+		})
+		if err != nil {
+			log.Printf("Worker failed to update webhook status: %v", err)
+		}
+		return
+	}
+	_, err = api.Db.Queries.UpdateIncomingWebhookStatus(ctx, db.UpdateIncomingWebhookStatusParams{
+		Status: "success",
+		ID:     webhook.ID,
+	})
 }

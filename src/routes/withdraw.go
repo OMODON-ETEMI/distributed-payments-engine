@@ -2,11 +2,11 @@ package routes
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"math/big"
 	"net/http"
 	"time"
@@ -290,15 +290,15 @@ func (api *ApiConfig) HandleWithdraw(w http.ResponseWriter, r *http.Request) {
 		Reason:        params.Description,
 	})
 	if err != nil {
-		jsonData, _ := json.Marshal(PaystackTransferData{
+		jsonData, _ := json.Marshal(WebhookTransferData{
+			ID:            trf.CustomerID.String(),
 			Reference:     trf.ID.String(),
 			Status:        "failed",
 			FailureReason: err.Error(),
 		})
-		api.handleTransferFailed(w, r, json.RawMessage(jsonData))
+		api.handleTransferFailed(r.Context(), json.RawMessage(jsonData), jsonData)
 		return
 	}
-	log.Printf("Provider response: %+v", providerResp)
 
 	respondeWithJson(w, 201, struct {
 		Transfer         TransferResponse  `json:"transfer"`
@@ -311,35 +311,22 @@ func (api *ApiConfig) HandleWithdraw(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (api *ApiConfig) handleTransferFailed(w http.ResponseWriter, r *http.Request, data json.RawMessage) {
-	var transferData PaystackTransferData
-	bodyBytes, err := io.ReadAll(r.Body)
-	if err != nil {
-		respondWithError(w, 500, fmt.Sprintf("Error reading request body: %v", err))
-		return
-	}
-	requestHash := HashRequest(bodyBytes)
+func (api *ApiConfig) handleTransferFailed(ctx context.Context, data json.RawMessage, rawBody []byte) error {
+	var transferData WebhookTransferData
+
+	requestHash := HashRequest(rawBody)
 	json.Unmarshal(data, &transferData)
 
 	trfID, _ := StringtoPgUuid(transferData.Reference)
 
-	check, err := api.IdemCheck(r.Context(), transferData.Reference, transferData.Status, requestHash, "transfer_success")
+	check, err := api.IdemCheck(ctx, transferData.Reference, transferData.Status, requestHash, "transfer_success")
 	if err != nil {
-		respondWithError(w, 500, fmt.Sprintf("Error checking idempotency key: %v", err))
-		return
+		return fmt.Errorf("Error checking idempotency key: %v", err)
 	}
 	if !check.ShouldProceed {
-		var cachedData TransferResponse
-		err := json.Unmarshal(check.CachedResponse, &cachedData)
-		if err != nil {
-			fmt.Printf("Failed to unmarshal cached response: %v", err)
-			respondeWithJson(w, check.StatusCode, string(check.CachedResponse))
-			return
-		}
-		respondeWithJson(w, check.StatusCode, cachedData)
-		return
+		return nil
 	}
-	idempkey, err := api.Db.Queries.CreateIdempotencyKey(r.Context(), db.CreateIdempotencyKeyParams{
+	idempkey, err := api.Db.Queries.CreateIdempotencyKey(ctx, db.CreateIdempotencyKeyParams{
 		IdempotencyKey: transferData.Reference,
 		Scope:          "Transfer_failed",
 		RequestHash:    []byte(requestHash),
@@ -349,13 +336,12 @@ func (api *ApiConfig) handleTransferFailed(w http.ResponseWriter, r *http.Reques
 		},
 	})
 	if err != nil {
-		respondWithError(w, 500, fmt.Sprintf("Error creating idempotency key: %v", err))
-		return
+		return fmt.Errorf("Error creating idempotency key: %v", err)
 	}
 
-	err = api.Db.ExecTx(r.Context(), func(q *db.Queries) error {
+	err = api.Db.ExecTx(ctx, func(q *db.Queries) error {
 
-		trf, err := q.GetTransferRequestByIDForUpdate(r.Context(), trfID)
+		trf, err := q.GetTransferRequestByIDForUpdate(ctx, trfID)
 		if err != nil {
 			return fmt.Errorf("Error getting Transfer by ID %v", err)
 		}
@@ -363,12 +349,12 @@ func (api *ApiConfig) handleTransferFailed(w http.ResponseWriter, r *http.Reques
 			return nil
 		}
 
-		hold, err := q.GetActiveHoldByTransferRequestID(r.Context(), trf.ID)
+		hold, err := q.GetActiveHoldByTransferRequestID(ctx, trf.ID)
 		if err != nil {
 			return fmt.Errorf("Error getting Hold: %v", err)
 		}
 		// Release hold — funds return to available
-		_, err = q.ReleaseHold(r.Context(), db.ReleaseHoldParams{
+		_, err = q.ReleaseHold(ctx, db.ReleaseHoldParams{
 			ID:     hold.ID,
 			Amount: trf.Amount,
 		})
@@ -377,7 +363,7 @@ func (api *ApiConfig) handleTransferFailed(w http.ResponseWriter, r *http.Reques
 		}
 
 		balance, err := GetOrCreateBalanceProjection(
-			r.Context(), q,
+			ctx, q,
 			trf.SourceAccountID,
 			trf.CurrencyCode,
 			"available",
@@ -397,7 +383,7 @@ func (api *ApiConfig) handleTransferFailed(w http.ResponseWriter, r *http.Reques
 		newAvailNum, _ := StringToNumeric(newAvail.String())
 		ledgerNum, _ := StringToNumeric(ledgerDecimal.String())
 
-		err = q.UpsertBalanceProjectionWithExpectedVersion(r.Context(),
+		err = q.UpsertBalanceProjectionWithExpectedVersion(ctx,
 			db.UpsertBalanceProjectionWithExpectedVersionParams{
 				AccountID:        trf.SourceAccountID,
 				CurrencyCode:     trf.CurrencyCode,
@@ -412,7 +398,7 @@ func (api *ApiConfig) handleTransferFailed(w http.ResponseWriter, r *http.Reques
 			return fmt.Errorf("Error Upserting Balance with Expected Version: %v", err)
 		}
 
-		trf, err = q.UpdateTransferRequestStatus(r.Context(), db.UpdateTransferRequestStatusParams{
+		trf, err = q.UpdateTransferRequestStatus(ctx, db.UpdateTransferRequestStatusParams{
 			ID:     trf.ID,
 			Status: "failed",
 		})
@@ -425,69 +411,56 @@ func (api *ApiConfig) handleTransferFailed(w http.ResponseWriter, r *http.Reques
 		if err != nil {
 			return fmt.Errorf("failed to marshal outbox payload: %w", err)
 		}
-		if err = api.saveIdem(r.Context(), transferData.Status, transferData.Reference, idempkey.ID, payloadBytes, 400); err != nil {
+		if err = api.saveIdem(ctx, transferData.Status, transferData.Reference, idempkey.ID, payloadBytes, 400); err != nil {
 			return fmt.Errorf("error saving idempotency key: %v", err)
 		}
-		_, err = q.CreateOutboxEvent(r.Context(), db.CreateOutboxEventParams{
+		headersMap := map[string]interface{}{
+			"content_type":      "application/json",
+			"source_system":     transferData.ID,
+			"event_transaction": trf.ID.String(),
+			"client_reference":  transferData.Reference,
+		}
+		headersBytes, err := json.Marshal(headersMap)
+		if err != nil {
+			return fmt.Errorf("failed to marshal outbox headers: %w", err)
+		}
+		_, err = q.CreateOutboxEvent(ctx, db.CreateOutboxEventParams{
 			AggregateType:    "transfer_request",
 			AggregateID:      trf.ID,
-			EventType:        "transfer.failed",
-			IdempotencyKeyID: idempkey.ID,
+			EventType:        "transfer.posted",
+			IdempotencyKeyID: trf.IdempotencyKeyID,
 			Payload:          payloadBytes,
-			Headers:          []byte("{}"),
+			Headers:          headersBytes,
+			PartitionKey:     pgtype.Text{String: trf.SourceAccountID.String(), Valid: true},
 		})
 		return fmt.Errorf("Error creating Outboxevent: %v", err)
 	})
-
-	if errors.Is(err, ErrAlreadyProcessed) {
-		respondeWithJson(w, 200, map[string]string{"received": "true"})
-		return
-	}
-	if err != nil {
-		respondWithError(w, 500, err.Error())
-		return
-	}
-	respondeWithJson(w, 200, map[string]string{"received": "true"})
+	return nil
 }
 
-func (api *ApiConfig) handleTransferSuccess(w http.ResponseWriter, r *http.Request, data json.RawMessage) {
-	var transferData PaystackTransferData
-	bodyBytes, err := io.ReadAll(r.Body)
-	if err != nil {
-		respondWithError(w, 500, fmt.Sprintf("Error reading request body: %v", err))
-		return
-	}
-	requestHash := HashRequest(bodyBytes)
+func (api *ApiConfig) handleTransferSuccess(ctx context.Context, data json.RawMessage, rawBody []byte) error {
+	var transferData WebhookTransferData
+	requestHash := HashRequest(rawBody)
 	if err := json.Unmarshal(data, &transferData); err != nil {
-		respondWithError(w, 400, "invalid transfer data")
-		return
+		return fmt.Errorf("invalid transfer data: %s", err)
 	}
 
 	// Reference is the transfer_request_id you sent Paystack
 	trfID, err := StringtoPgUuid(transferData.Reference)
 	if err != nil {
-		respondWithError(w, 400, "invalid reference")
-		return
+		return fmt.Errorf("Invalid reference")
 	}
 
 	// zero, _ := StringToNumeric("0.00")
-	check, err := api.IdemCheck(r.Context(), transferData.Reference, transferData.Status, requestHash, "transfer_success")
+	check, err := api.IdemCheck(ctx, transferData.Reference, transferData.Status, requestHash, transferData.Status)
 	if err != nil {
-		respondWithError(w, 500, fmt.Sprintf("Error checking idempotency key: %v", err))
-		return
+		return fmt.Errorf("Error checking idempotency key: %v", err)
 	}
 	if !check.ShouldProceed {
-		var cachedData TransferResponse
-		err := json.Unmarshal(check.CachedResponse, &cachedData)
-		if err != nil {
-			fmt.Printf("Failed to unmarshal cached response: %v", err)
-			respondeWithJson(w, check.StatusCode, string(check.CachedResponse))
-			return
-		}
-		respondeWithJson(w, check.StatusCode, cachedData)
-		return
+		return nil
 	}
-	idempkey, err := api.Db.Queries.CreateIdempotencyKey(r.Context(), db.CreateIdempotencyKeyParams{
+
+	idempkey, err := api.Db.Queries.CreateIdempotencyKey(ctx, db.CreateIdempotencyKeyParams{
 		IdempotencyKey: transferData.Reference,
 		Scope:          "transfer_success",
 		RequestHash:    []byte(requestHash),
@@ -497,33 +470,32 @@ func (api *ApiConfig) handleTransferSuccess(w http.ResponseWriter, r *http.Reque
 		},
 	})
 	if err != nil {
-		respondWithError(w, 500, fmt.Sprintf("Error creating idempotency key: %v", err))
-		return
+		return fmt.Errorf("Error creating idempotency key: %v", err)
 	}
 
-	err = api.Db.ExecTx(r.Context(), func(q *db.Queries) error {
+	err = api.Db.ExecTx(ctx, func(q *db.Queries) error {
 
-		trf, err := q.GetTransferRequestByIDForUpdate(r.Context(), trfID)
+		trf, err := q.GetTransferRequestByIDForUpdate(ctx, trfID)
 		if err != nil {
 			return fmt.Errorf("transfer not found: %w", err)
 		}
 		if trf.Status == "posted" {
 			return fmt.Errorf("Transferr already processed")
 		}
-		Meta, err := json.Marshal(map[string]string{"transfer_code": transferData.TransferCode, "status": transferData.Status, "reference": transferData.Reference})
+		Meta, err := json.Marshal(map[string]string{"ID": transferData.ID, "status": transferData.Status, "reference": transferData.Reference})
 		if err != nil {
 			return fmt.Errorf("Unable to parse Metadata payload: %w", err)
 		}
 
 		// 2. Get the active hold for this transfer
-		hold, err := q.GetActiveHoldByTransferRequestID(r.Context(), trf.ID)
+		hold, err := q.GetActiveHoldByTransferRequestID(ctx, trf.ID)
 		if err != nil {
 			return fmt.Errorf("Error Getting Hold: %w", err)
 		}
 
 		// 3. Lock balance projection
 		balance, err := GetOrCreateBalanceProjection(
-			r.Context(), q,
+			ctx, q,
 			trf.SourceAccountID,
 			trf.CurrencyCode,
 			"available",
@@ -533,7 +505,7 @@ func (api *ApiConfig) handleTransferSuccess(w http.ResponseWriter, r *http.Reque
 		}
 
 		// 4. Create the SETTLEMENT journal transaction — the real debit
-		jtx, err := q.CreateJournalTransaction(r.Context(), db.CreateJournalTransactionParams{
+		jtx, err := q.CreateJournalTransaction(ctx, db.CreateJournalTransactionParams{
 			TransactionRef:    uuid.NewString(),
 			TransferRequestID: trf.ID,
 			IdempotencyKeyID:  idempkey.ID,
@@ -542,14 +514,14 @@ func (api *ApiConfig) handleTransferSuccess(w http.ResponseWriter, r *http.Reque
 			AccountingDate:    pgtype.Date{Time: time.Now(), Valid: true},
 			EffectiveAt:       pgtype.Timestamptz{Time: time.Now(), Valid: true},
 			SourceSystem:      "paystack_webhook",
-			SourceEventID:     pgtype.Text{String: transferData.TransferCode, Valid: true},
+			SourceEventID:     pgtype.Text{String: transferData.ID, Valid: true},
 			Metadata:          Meta,
 		})
 		if err != nil {
 			return fmt.Errorf("Error Creating Journal transaction %v", err)
 		}
 
-		settlementAcct, err := q.GetAccountByExternalRef(r.Context(), "system_settlement_ngn")
+		settlementAcct, err := q.GetAccountByExternalRef(ctx, "system_settlement_ngn")
 		if err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
 				return fmt.Errorf("System settlement account not found")
@@ -558,7 +530,7 @@ func (api *ApiConfig) handleTransferSuccess(w http.ResponseWriter, r *http.Reque
 		}
 
 		// 5. Journal lines — actual debit of customer, credit settlement
-		_, err = q.CreateJournalLine(r.Context(), db.CreateJournalLineParams{
+		_, err = q.CreateJournalLine(ctx, db.CreateJournalLineParams{
 			JournalTransactionID: jtx.ID,
 			LineNumber:           1,
 			AccountID:            trf.SourceAccountID,
@@ -573,7 +545,7 @@ func (api *ApiConfig) handleTransferSuccess(w http.ResponseWriter, r *http.Reque
 			return fmt.Errorf("Error creating journal line: %v", err)
 		}
 
-		journalLine, err := q.CreateJournalLine(r.Context(), db.CreateJournalLineParams{
+		journalLine, err := q.CreateJournalLine(ctx, db.CreateJournalLineParams{
 			JournalTransactionID: jtx.ID,
 			LineNumber:           2,
 			AccountID:            settlementAcct.ID,
@@ -589,7 +561,7 @@ func (api *ApiConfig) handleTransferSuccess(w http.ResponseWriter, r *http.Reque
 		}
 
 		// 6. Consume the hold
-		_, err = q.ConsumeHold(r.Context(), db.ConsumeHoldParams{
+		_, err = q.ConsumeHold(ctx, db.ConsumeHoldParams{
 			ID:     hold.ID,
 			Amount: trf.Amount,
 		})
@@ -598,7 +570,7 @@ func (api *ApiConfig) handleTransferSuccess(w http.ResponseWriter, r *http.Reque
 		}
 
 		// 7. Mark journal transaction posted
-		_, err = q.MarkJournalTransactionPosted(r.Context(), jtx.ID)
+		_, err = q.MarkJournalTransactionPosted(ctx, jtx.ID)
 		if err != nil {
 			return fmt.Errorf("Error marking Journal: %v", err)
 		}
@@ -616,7 +588,7 @@ func (api *ApiConfig) handleTransferSuccess(w http.ResponseWriter, r *http.Reque
 		newHeldNum, _ := StringToNumeric(newHeld.String())
 		newAvailNum, _ := StringToNumeric(newAvail.String())
 
-		err = q.UpsertBalanceProjectionWithExpectedVersion(r.Context(),
+		err = q.UpsertBalanceProjectionWithExpectedVersion(ctx,
 			db.UpsertBalanceProjectionWithExpectedVersionParams{
 				AccountID:        trf.SourceAccountID,
 				CurrencyCode:     trf.CurrencyCode,
@@ -633,7 +605,7 @@ func (api *ApiConfig) handleTransferSuccess(w http.ResponseWriter, r *http.Reque
 		}
 
 		// 9. Update transfer request → posted
-		_, err = q.UpdateTransferRequestStatus(r.Context(), db.UpdateTransferRequestStatusParams{
+		_, err = q.UpdateTransferRequestStatus(ctx, db.UpdateTransferRequestStatusParams{
 			ID:     trf.ID,
 			Status: "posted",
 		})
@@ -645,36 +617,35 @@ func (api *ApiConfig) handleTransferSuccess(w http.ResponseWriter, r *http.Reque
 		if err != nil {
 			return fmt.Errorf("failed to marshal payload: %w", err)
 		}
-		header, err := json.Marshal(map[string]string{})
 
-		if err = api.saveIdem(r.Context(), transferData.Status, transferData.Reference, idempkey.ID, payloadBytes, 201); err != nil {
+		if err = api.saveIdem(ctx, transferData.Status, transferData.Reference, idempkey.ID, payloadBytes, 201); err != nil {
 			return fmt.Errorf("error saving idempotency key: %v", err)
+		}
+		headersMap := map[string]interface{}{
+			"content_type":      "application/json",
+			"source_system":     transferData.ID,
+			"event_transaction": jtx.TransactionRef,
+			"client_reference":  transferData.Reference,
+		}
+		headersBytes, err := json.Marshal(headersMap)
+		if err != nil {
+			return fmt.Errorf("failed to marshal outbox headers: %w", err)
 		}
 
 		// 10. Outbox event — client gets notified via this
-		_, err = q.CreateOutboxEvent(r.Context(), db.CreateOutboxEventParams{
+		_, err = q.CreateOutboxEvent(ctx, db.CreateOutboxEventParams{
 			AggregateType:    "transfer_request",
 			AggregateID:      trf.ID,
 			EventType:        "transfer.posted",
 			IdempotencyKeyID: trf.IdempotencyKeyID,
 			Payload:          payloadBytes,
-			Headers:          header,
+			Headers:          headersBytes,
+			PartitionKey:     pgtype.Text{String: trf.SourceAccountID.String(), Valid: true},
 		})
 		if err != nil {
 			return fmt.Errorf("Error creating Outboxevent: %w", err)
 		}
 		return nil
 	})
-
-	if errors.Is(err, ErrAlreadyProcessed) {
-		respondeWithJson(w, 200, map[string]string{"received": "true"})
-		return
-	}
-	if err != nil {
-		// Return 500 — Paystack will retry the webhook later
-		respondWithError(w, 500, err.Error())
-		return
-	}
-
-	respondeWithJson(w, 200, map[string]string{"received": "true"})
+	return nil
 }

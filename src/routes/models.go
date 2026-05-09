@@ -86,6 +86,17 @@ type HoldResponse struct {
 	CreatedAt  time.Time   `json:"created_at"`
 }
 
+type OutboxEventResponse struct {
+	ID               string                 `json:"id"`
+	AggregateType    string                 `json:"aggregate_type"`
+	AggregateID      string                 `json:"aggregate_id"`
+	EventType        string                 `json:"event_type"`
+	Payload          map[string]interface{} `json:"payload"`
+	Headers          []byte                 `json:"headers"`
+	IdempotencyKeyID string                 `json:"idempotency_key_id"`
+	PartitionKey     string                 `json:"partition_key"`
+}
+
 func UserResponseObject(dbUser database.Customer) UserResponse {
 	return UserResponse{
 		ID:          dbUser.ID.String(),

@@ -9,8 +9,8 @@ import (
 	"time"
 
 	_ "github.com/OMODON-ETEMI/distributed-payments-engine/docs"
-	// db "github.com/OMODON-ETEMI/distributed-payments-engine/src/database/gen"
 	"github.com/OMODON-ETEMI/distributed-payments-engine/src/database"
+	"github.com/OMODON-ETEMI/distributed-payments-engine/src/internal/messaging/producer"
 	"github.com/OMODON-ETEMI/distributed-payments-engine/src/routes"
 	"github.com/go-chi/chi"
 	"github.com/go-chi/cors"
@@ -27,6 +27,11 @@ func main() {
 		log.Fatal("PORT is not found in the enviroment")
 	}
 
+	kafkaBroker := os.Getenv("KAFKA_BROKER")
+	if kafkaBroker == "" {
+		log.Fatal("KAFKA_BROKER is not found in the environment")
+	}
+
 	dbUrl := os.Getenv("e2e_TEST_DB_URL")
 	if dbUrl == "" {
 		log.Fatal("DB_URL is not found in the enviroment")
@@ -39,6 +44,13 @@ func main() {
 	}
 	defer connPool.Close()
 
+	// Initialize Kafka Producer
+	kafkaProducer, err := producer.NewKafkaProducer(kafkaBroker)
+	if err != nil {
+		log.Fatalf("Failed to create Kafka producer: %v", err)
+	}
+	defer kafkaProducer.Close()
+
 	// Initialize Redis client
 	redisClient := routes.NewRedis()
 
@@ -50,12 +62,14 @@ func main() {
 		MaxRequests:              1,
 		Interval:                 5 * time.Second,
 		Timeout:                  10 * time.Second,
-		ConsecutiveFailThreshold: 3, // Trip after 3 consecutive failures
+		ConsecutiveFailThreshold: 3,
 	}
 	mockProviderBreaker := routes.NewProviderBreaker(mockProvider, breakerConfig)
 
 	api := &routes.ApiConfig{
+		Kafka:  kafkaProducer,
 		Db:     database.NewDb(connPool),
+		DbPool: connPool,
 		Redis:  redisClient,
 		Router: routes.NewPaymentRouter([]*routes.ProviderBreaker{mockProviderBreaker}),
 	}
@@ -75,7 +89,7 @@ func main() {
 	}))
 
 	v1Router := chi.NewRouter()
-	// v1Router.Get("/healthz", routes.HandleReadiness)
+	v1Router.Get("/healthz", routes.HandleHealthCheck)
 	v1Router.Get("/err", routes.HandleError)
 	v1Router.Post("/create/user", api.HandleCreateUser)
 	v1Router.Get("/user/{id}", api.HandleGetUserById)

@@ -369,7 +369,6 @@ func (api *ApiConfig) HandleCreateTransfer(w http.ResponseWriter, r *http.Reques
 		if err != nil {
 			return fmt.Errorf("failed to marshal outbox headers: %w", err)
 		}
-		partitionKey := pgtype.Text{String: trf.ID.String(), Valid: true}
 
 		_, err = q.CreateOutboxEvent(r.Context(), db.CreateOutboxEventParams{
 			AggregateType:    "transfer_request",
@@ -378,7 +377,19 @@ func (api *ApiConfig) HandleCreateTransfer(w http.ResponseWriter, r *http.Reques
 			IdempotencyKeyID: idempkey.ID,
 			Payload:          payloadBytes,
 			Headers:          headersBytes,
-			PartitionKey:     partitionKey,
+			PartitionKey:     pgtype.Text{String: trf.SourceAccountID.String(), Valid: true},
+		})
+		if err != nil {
+			return fmt.Errorf("failed to create outbox event: %w", err)
+		}
+		_, err = q.CreateOutboxEvent(r.Context(), db.CreateOutboxEventParams{
+			AggregateType:    "transfer_request",
+			AggregateID:      trf.ID,
+			EventType:        "transfer.posted",
+			IdempotencyKeyID: idempkey.ID,
+			Payload:          payloadBytes,
+			Headers:          headersBytes,
+			PartitionKey:     pgtype.Text{String: trf.DestinationAccountID.String(), Valid: true},
 		})
 		if err != nil {
 			return fmt.Errorf("failed to create outbox event: %w", err)

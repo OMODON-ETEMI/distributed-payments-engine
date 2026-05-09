@@ -109,6 +109,20 @@ type IdempotencyKey struct {
 	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
 }
 
+type IncomingWebhook struct {
+	ID              pgtype.UUID        `json:"id"`
+	Provider        string             `json:"provider"`
+	ExternalEventID pgtype.Text        `json:"external_event_id"`
+	EventType       pgtype.Text        `json:"event_type"`
+	Payload         []byte             `json:"payload"`
+	Headers         []byte             `json:"headers"`
+	Status          string             `json:"status"`
+	ProcessedAt     pgtype.Timestamptz `json:"processed_at"`
+	ErrorMessage    pgtype.Text        `json:"error_message"`
+	CreatedAt       pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
+}
+
 // Append-only double-entry lines. Balances must be derived from this table and journal_transactions.
 type JournalLine struct {
 	ID                   pgtype.UUID        `json:"id"`

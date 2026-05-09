@@ -91,13 +91,16 @@ func (m *MockProvider) TransferResponse(req InitiateRequest) {
 	// Simulate network latency
 	time.Sleep(2 * time.Second)
 
-	transferData, _ := json.Marshal(&PaystackTransferData{
-		TransferCode: "MOCK-TRF-" + uuid.NewString()[:8],
-		Reference:    req.Reference,
-		Status:       "success",
+	transferData, _ := json.Marshal(&WebhookTransferData{
+		ID:        "MOCK-TRF-" + uuid.NewString()[:8],
+		Reference: req.Reference,
+		Status:    "success",
+		BankCode:  "044",
+		FullName:  "Alexis Sanchez",
+		Amount:    "5000",
 	})
 
-	payload, _ := json.Marshal(&PaystackWebhookBody{
+	payload, _ := json.Marshal(&WebhookBody{
 		Event: "transfer.success",
 		Data:  transferData,
 	})

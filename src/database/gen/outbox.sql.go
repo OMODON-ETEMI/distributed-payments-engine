@@ -78,13 +78,22 @@ func (q *Queries) CreateOutboxEvent(ctx context.Context, arg CreateOutboxEventPa
 }
 
 const listPendingOutboxEvents = `-- name: ListPendingOutboxEvents :many
-SELECT id, aggregate_type, aggregate_id, event_type, status, idempotency_key_id, payload, headers, partition_key, published_at, retry_count, next_retry_at, error_code, error_message, created_at, updated_at
-FROM outbox_events
-WHERE status IN ('pending', 'failed')
-  AND (next_retry_at IS NULL OR next_retry_at <= now())
-ORDER BY created_at ASC
-LIMIT $1
-FOR UPDATE SKIP LOCKED
+WITH selected_events AS (
+    SELECT id 
+    FROM outbox_events
+    WHERE status IN ('pending', 'failed')
+      AND (next_retry_at IS NULL OR next_retry_at <= now())
+    ORDER BY created_at ASC
+    LIMIT $1
+    FOR UPDATE SKIP LOCKED
+)
+UPDATE outbox_events
+SET 
+    status = 'processing',
+    updated_at = now()
+FROM selected_events
+WHERE outbox_events.id = selected_events.id
+RETURNING outbox_events.id, outbox_events.aggregate_type, outbox_events.aggregate_id, outbox_events.event_type, outbox_events.status, outbox_events.idempotency_key_id, outbox_events.payload, outbox_events.headers, outbox_events.partition_key, outbox_events.published_at, outbox_events.retry_count, outbox_events.next_retry_at, outbox_events.error_code, outbox_events.error_message, outbox_events.created_at, outbox_events.updated_at
 `
 
 func (q *Queries) ListPendingOutboxEvents(ctx context.Context, limit int32) ([]OutboxEvent, error) {
@@ -226,4 +235,17 @@ func (q *Queries) MarkOutboxEventPublished(ctx context.Context, id pgtype.UUID) 
 		&i.UpdatedAt,
 	)
 	return i, err
+}
+
+const resetStuckOutboxEvent = `-- name: ResetStuckOutboxEvent :exec
+UPDATE outbox_events
+SET status = 'pending',
+    retry_count = retry_count + 1,
+    updated_at = now()
+WHERE status = 'processing' AND updated_at < now() - INTERVAL '5 minutes'
+`
+
+func (q *Queries) ResetStuckOutboxEvent(ctx context.Context) error {
+	_, err := q.db.Exec(ctx, resetStuckOutboxEvent)
+	return err
 }
