@@ -18,6 +18,18 @@ type HoldParams struct {
 	ReasonCode        *string `json:"reason_code,omitempty"`
 }
 
+// ConsumeHold converts a held amount to an actual debit and releases remaining funds.
+// @Summary Consume a hold
+// @Description Converts a held amount to an actual debit and releases remaining funds.
+// @Tags Admin
+// @Accept json
+// @Produce json
+// @Param body body HoldParams true "Hold Consumption Details"
+// @Success 200 {object} object
+// @Failure 400 {object} errResponse
+// @Failure 404 {object} errResponse
+// @Failure 500 {object} errResponse
+// @Router /admin/hold/consume [post]
 func (api *ApiConfig) ConsumeHold(w http.ResponseWriter, r *http.Request) {
 	decoder := json.NewDecoder(r.Body)
 	params := HoldParams{}
@@ -46,6 +58,17 @@ func (api *ApiConfig) ConsumeHold(w http.ResponseWriter, r *http.Request) {
 	respondeWithJson(w, 200, struct{}{})
 }
 
+// GetHoldBytransferRequest retrieves the active hold placed on a transfer.
+// @Summary Get active hold for transfer
+// @Description Retrieves the active hold placed on a transfer for payment processing.
+// @Tags Admin
+// @Produce json
+// @Param transfer_id path string true "Transfer request UUID" format(uuid)
+// @Success 200 {object} HoldResponse
+// @Failure 400 {object} errResponse
+// @Failure 404 {object} errResponse
+// @Failure 500 {object} errResponse
+// @Router /admin/hold/{transfer_id} [get]
 func (api *ApiConfig) GetHoldBytransferRequest(w http.ResponseWriter, r *http.Request) {
 	TransferRequestID := chi.URLParam(r, "transfer_id")
 	if TransferRequestID == "" {

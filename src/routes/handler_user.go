@@ -26,6 +26,17 @@ type parameters struct {
 	Offset      int                    `json:"offset"`
 }
 
+// HandleCreateUser creates a new customer/user.
+// @Summary Create a new customer/user
+// @Description Creates a new customer account with the provided information. Idempotent by external_ref.
+// @Tags Users
+// @Accept json
+// @Produce json
+// @Param body body parameters true "User Creation Details"
+// @Success 200 {object} UserResponse
+// @Failure 400 {object} errResponse
+// @Failure 500 {object} errResponse
+// @Router /create/user [post]
 func (api *ApiConfig) HandleCreateUser(w http.ResponseWriter, r *http.Request) {
 	decoder := json.NewDecoder(r.Body)
 	params := parameters{}
@@ -99,6 +110,17 @@ func (api *ApiConfig) HandleGetUserByExternalRef(w http.ResponseWriter, r *http.
 	respondeWithJson(w, 200, UserResponseObject(user))
 }
 
+// HandleGetUserById retrieves a specific customer by their UUID.
+// @Summary Get user by ID
+// @Description Retrieves a specific customer by their UUID.
+// @Tags Users
+// @Produce json
+// @Param id path string true "Customer UUID" format(uuid)
+// @Success 200 {object} UserResponse
+// @Failure 400 {object} errResponse
+// @Failure 404 {object} errResponse
+// @Failure 500 {object} errResponse
+// @Router /user/{id} [get]
 func (api *ApiConfig) HandleGetUserById(w http.ResponseWriter, r *http.Request) {
 	idStr := chi.URLParam(r, "id")
 	if idStr == "" {
@@ -122,6 +144,18 @@ func (api *ApiConfig) HandleGetUserById(w http.ResponseWriter, r *http.Request) 
 	respondeWithJson(w, 200, UserResponseObject(user))
 }
 
+// HandleUserUpdateStatus updates the status of an existing customer.
+// @Summary Update user status
+// @Description Updates the status of an existing customer (e.g., active, inactive, suspended).
+// @Tags Users
+// @Accept json
+// @Produce json
+// @Param body body parameters true "User Status Update Details (requires id and status)"
+// @Success 200 {object} UserResponse
+// @Failure 400 {object} errResponse
+// @Failure 404 {object} errResponse
+// @Failure 500 {object} errResponse
+// @Router /update/user [post]
 func (api *ApiConfig) HandleUserUpdateStatus(w http.ResponseWriter, r *http.Request) {
 	decoder := json.NewDecoder(r.Body)
 	params := parameters{}
@@ -154,6 +188,17 @@ func (api *ApiConfig) HandleUserUpdateStatus(w http.ResponseWriter, r *http.Requ
 	respondeWithJson(w, 200, UserResponseObject(user))
 }
 
+// HandleListCustomers returns a paginated list of customers.
+// @Summary List customers with pagination
+// @Description Returns paginated list of customers with optional limit and offset.
+// @Tags Users
+// @Accept json
+// @Produce json
+// @Param body body parameters true "Pagination details"
+// @Success 200 {array} UserResponse
+// @Failure 400 {object} errResponse
+// @Failure 500 {object} errResponse
+// @Router /list/users [post]
 func (api *ApiConfig) HandleListCustomers(w http.ResponseWriter, r *http.Request) {
 	decoder := json.NewDecoder(r.Body)
 	params := parameters{}

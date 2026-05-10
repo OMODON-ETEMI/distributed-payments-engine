@@ -32,6 +32,18 @@ type DepositeParams struct {
 	Metadata             map[string]interface{} `json:"metadata"`
 }
 
+// HandleDeposite credits funds to an account from the system settlement account.
+// @Summary Deposit funds to account
+// @Description Credits funds to an account from the system settlement account. Supports idempotent deposits.
+// @Tags Deposits
+// @Accept json
+// @Produce json
+// @Param body body DepositeParams true "Deposit Details"
+// @Success 201 {object} TransferResponse
+// @Failure 400 {object} errResponse
+// @Failure 404 {object} errResponse
+// @Failure 500 {object} errResponse
+// @Router /account/deposite [post]
 func (api *ApiConfig) HandleDeposite(w http.ResponseWriter, r *http.Request) {
 	bodyBytes, err := io.ReadAll(r.Body)
 	if err != nil {

@@ -1,4 +1,888 @@
+basePath: /v1
+definitions:
+  routes.AccountParameters:
+    properties:
+      account_number:
+        type: string
+      account_type:
+        type: string
+      currency_code:
+        type: string
+      customer_id:
+        type: string
+      external_ref:
+        type: string
+      id:
+        type: string
+      ledger_normal_side:
+        type: string
+      limit:
+        type: integer
+      metadata:
+        additionalProperties: true
+        type: object
+      offset:
+        type: integer
+      status:
+        type: string
+    type: object
+  routes.AccountResponse:
+    properties:
+      account_number:
+        type: string
+      account_type:
+        type: string
+      created_at:
+        type: string
+      currency_code:
+        type: string
+      customer_id:
+        type: string
+      id:
+        type: string
+      ledger_normal_side:
+        type: string
+      status:
+        type: string
+    type: object
+  routes.BalanceResponse:
+    properties:
+      account_id:
+        type: string
+      as_of:
+        description: when projection was computed
+        type: string
+      available_balance:
+        allOf:
+        - $ref: '#/definitions/routes.MoneyAmount'
+        description: spendable right now
+      currency:
+        type: string
+      held_balance:
+        allOf:
+        - $ref: '#/definitions/routes.MoneyAmount'
+        description: reserved, not yet debited
+      ledger_balance:
+        allOf:
+        - $ref: '#/definitions/routes.MoneyAmount'
+        description: total ever posted
+    type: object
+  routes.DepositeParams:
+    properties:
+      amount:
+        type: string
+      client_reference:
+        type: string
+      currency_code:
+        type: string
+      customer_id:
+        type: string
+      description:
+        type: string
+      destination_account_id:
+        type: string
+      external_reference:
+        type: string
+      fee_amount:
+        type: string
+      idempotency_key_id:
+        type: string
+      memo:
+        type: string
+      metadata:
+        additionalProperties: true
+        type: object
+      source_account_id:
+        type: string
+      source_system:
+        type: string
+    type: object
+  routes.HoldParams:
+    properties:
+      amount:
+        description: original hold amount
+        type: string
+      id:
+        type: string
+      reason_code:
+        type: string
+      transfer_id:
+        type: string
+    type: object
+  routes.HoldResponse:
+    properties:
+      account_id:
+        type: string
+      amount:
+        allOf:
+        - $ref: '#/definitions/routes.MoneyAmount'
+        description: original hold amount
+      captured_amount:
+        allOf:
+        - $ref: '#/definitions/routes.MoneyAmount'
+        description: converted to real debit
+      captured_at:
+        type: string
+      created_at:
+        type: string
+      expires_at:
+        type: string
+      id:
+        type: string
+      reason_code:
+        type: string
+      released_amount:
+        allOf:
+        - $ref: '#/definitions/routes.MoneyAmount'
+        description: returned to available
+      released_at:
+        type: string
+      remaining_amount:
+        allOf:
+        - $ref: '#/definitions/routes.MoneyAmount'
+        description: still locked
+      status:
+        description: '"active" | "consumed" | "released" | "expired"'
+        type: string
+    type: object
+  routes.MoneyAmount:
+    properties:
+      amount:
+        description: always a string — never float for money
+        type: string
+      currency:
+        description: '"NGN"'
+        type: string
+    type: object
+  routes.TransferParams:
+    properties:
+      amount:
+        type: string
+      client_reference:
+        type: string
+      currency_code:
+        type: string
+      customer_id:
+        type: string
+      description:
+        type: string
+      destination_account_id:
+        type: string
+      external_reference:
+        type: string
+      fee_amount:
+        type: string
+      idempotency_key_id:
+        type: string
+      memo:
+        type: string
+      metadata:
+        additionalProperties: true
+        type: object
+      source_account_id:
+        type: string
+      source_system:
+        type: string
+    type: object
+  routes.TransferResponse:
+    properties:
+      amount:
+        $ref: '#/definitions/routes.MoneyAmount'
+      client_reference:
+        type: string
+      description:
+        type: string
+      destination_account_id:
+        type: string
+      external_reference:
+        type: string
+      failure_code:
+        type: string
+      failure_reason:
+        type: string
+      fee:
+        $ref: '#/definitions/routes.MoneyAmount'
+      id:
+        type: string
+      journal_transaction_id:
+        type: string
+      posted_at:
+        type: string
+      requested_at:
+        type: string
+      source_account_id:
+        type: string
+      status:
+        type: string
+    type: object
+  routes.UserResponse:
+    properties:
+      created_at:
+        type: string
+      email:
+        type: string
+      external_ref:
+        type: string
+      full_name:
+        type: string
+      id:
+        type: string
+      national_id:
+        type: string
+      phone:
+        type: string
+      status:
+        type: string
+    type: object
+  routes.WebhookBody:
+    properties:
+      data:
+        type: object
+      event:
+        type: string
+      id:
+        type: string
+      type:
+        type: string
+    type: object
+  routes.WithddrawParams:
+    properties:
+      amount:
+        type: string
+      client_reference:
+        type: string
+      currency_code:
+        type: string
+      customer_id:
+        type: string
+      description:
+        type: string
+      destination_account_id:
+        type: string
+      external_reference:
+        type: string
+      fee_amount:
+        type: string
+      idempotency_key_id:
+        type: string
+      memo:
+        type: string
+      metadata:
+        additionalProperties: true
+        type: object
+      source_account_id:
+        type: string
+      source_system:
+        type: string
+    type: object
+  routes.errResponse:
+    properties:
+      error:
+        type: string
+    type: object
+  routes.parameters:
+    properties:
+      email:
+        type: string
+      external_ref:
+        type: string
+      full_name:
+        type: string
+      id:
+        type: string
+      idemp_key:
+        type: string
+      limit:
+        type: integer
+      metadata:
+        additionalProperties: true
+        type: object
+      national_id:
+        type: string
+      offset:
+        type: integer
+      phone:
+        type: string
+      status:
+        type: string
+    type: object
+host: localhost:8080
 info:
   contact: {}
-paths: {}
+  description: A comprehensive distributed payment processing system with support
+    for transfers, deposits, withdrawals, and holds.
+  title: Distributed Payments Engine API
+  version: 1.0.0
+paths:
+  /account/{id}/balances:
+    get:
+      description: Retrieves all balance information for an account including ledger,
+        available, and held amounts.
+      parameters:
+      - description: Account UUID
+        format: uuid
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/routes.BalanceResponse'
+            type: array
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/routes.errResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/routes.errResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/routes.errResponse'
+      summary: Get balances for account
+      tags:
+      - Balances
+  /account/deposite:
+    post:
+      consumes:
+      - application/json
+      description: Credits funds to an account from the system settlement account.
+        Supports idempotent deposits.
+      parameters:
+      - description: Deposit Details
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/routes.DepositeParams'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/routes.TransferResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/routes.errResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/routes.errResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/routes.errResponse'
+      summary: Deposit funds to account
+      tags:
+      - Deposits
+  /account/number/{number}:
+    get:
+      description: Retrieves account details by its account number.
+      parameters:
+      - description: Account number
+        in: path
+        name: number
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/routes.AccountResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/routes.errResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/routes.errResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/routes.errResponse'
+      summary: Get account by account number
+      tags:
+      - Accounts
+  /account/transfer:
+    post:
+      consumes:
+      - application/json
+      description: Creates a money transfer from one account to another with automatic
+        fee collection. Supports idempotent transfers.
+      parameters:
+      - description: Transfer Details
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/routes.TransferParams'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/routes.TransferResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/routes.errResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/routes.errResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/routes.errResponse'
+      summary: Create a transfer between accounts
+      tags:
+      - Transfers
+  /account/withdraw:
+    post:
+      consumes:
+      - application/json
+      description: Debits funds from an account to the system settlement account.
+        Supports idempotent withdrawals.
+      parameters:
+      - description: Withdrawal Details
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/routes.WithddrawParams'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/routes.TransferResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/routes.errResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/routes.errResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/routes.errResponse'
+      summary: Withdraw funds from account
+      tags:
+      - Withdrawals
+  /admin/hold/{transfer_id}:
+    get:
+      description: Retrieves the active hold placed on a transfer for payment processing.
+      parameters:
+      - description: Transfer request UUID
+        format: uuid
+        in: path
+        name: transfer_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/routes.HoldResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/routes.errResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/routes.errResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/routes.errResponse'
+      summary: Get active hold for transfer
+      tags:
+      - Admin
+  /admin/hold/consume:
+    post:
+      consumes:
+      - application/json
+      description: Converts a held amount to an actual debit and releases remaining
+        funds.
+      parameters:
+      - description: Hold Consumption Details
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/routes.HoldParams'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/routes.errResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/routes.errResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/routes.errResponse'
+      summary: Consume a hold
+      tags:
+      - Admin
+  /create/account:
+    post:
+      consumes:
+      - application/json
+      description: Creates a new account for a customer. Idempotent by external_ref
+        and account_number.
+      parameters:
+      - description: Account Creation Details
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/routes.AccountParameters'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/routes.AccountResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/routes.errResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/routes.errResponse'
+      summary: Create a new account
+      tags:
+      - Accounts
+  /create/user:
+    post:
+      consumes:
+      - application/json
+      description: Creates a new customer account with the provided information. Idempotent
+        by external_ref.
+      parameters:
+      - description: User Creation Details
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/routes.parameters'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/routes.UserResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/routes.errResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/routes.errResponse'
+      summary: Create a new customer/user
+      tags:
+      - Users
+  /err:
+    get:
+      description: Testing endpoint for error handling validation.
+      produces:
+      - application/json
+      responses:
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/routes.errResponse'
+      summary: Error test endpoint
+      tags:
+      - Health
+  /healthz:
+    get:
+      description: Returns 200 OK if the service is alive and responding. Used for
+        liveness probes.
+      produces:
+      - text/plain
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: string
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/routes.errResponse'
+      summary: Health check endpoint
+      tags:
+      - Health
+  /list/accounts/customer:
+    post:
+      consumes:
+      - application/json
+      description: Returns paginated list of accounts owned by a specific customer.
+      parameters:
+      - description: Customer ID and Pagination details
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/routes.AccountParameters'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/routes.AccountResponse'
+            type: array
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/routes.errResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/routes.errResponse'
+      summary: List accounts for a customer
+      tags:
+      - Accounts
+  /list/users:
+    post:
+      consumes:
+      - application/json
+      description: Returns paginated list of customers with optional limit and offset.
+      parameters:
+      - description: Pagination details
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/routes.parameters'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/routes.UserResponse'
+            type: array
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/routes.errResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/routes.errResponse'
+      summary: List customers with pagination
+      tags:
+      - Users
+  /transfer/{id}:
+    get:
+      description: Retrieves details of a specific transfer transaction.
+      parameters:
+      - description: Transfer UUID
+        format: uuid
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/routes.TransferResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/routes.errResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/routes.errResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/routes.errResponse'
+      summary: Get transfer by ID
+      tags:
+      - Transfers
+  /update/account:
+    post:
+      consumes:
+      - application/json
+      description: Updates the status of an existing account (e.g., active, suspended,
+        closed).
+      parameters:
+      - description: Account ID and New Status
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/routes.AccountParameters'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/routes.AccountResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/routes.errResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/routes.errResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/routes.errResponse'
+      summary: Update account status
+      tags:
+      - Accounts
+  /update/user:
+    post:
+      consumes:
+      - application/json
+      description: Updates the status of an existing customer (e.g., active, inactive,
+        suspended).
+      parameters:
+      - description: User Status Update Details (requires id and status)
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/routes.parameters'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/routes.UserResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/routes.errResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/routes.errResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/routes.errResponse'
+      summary: Update user status
+      tags:
+      - Users
+  /user/{id}:
+    get:
+      description: Retrieves a specific customer by their UUID.
+      parameters:
+      - description: Customer UUID
+        format: uuid
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/routes.UserResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/routes.errResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/routes.errResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/routes.errResponse'
+      summary: Get user by ID
+      tags:
+      - Users
+  /webhook/paystack:
+    post:
+      consumes:
+      - application/json
+      description: 'Receives webhook events from Paystack. Supported events: transfer.success,
+        transfer.failed, transfer.reversed.'
+      parameters:
+      - description: HMAC-SHA512 signature
+        in: header
+        name: X-Paystack-Signature
+        required: true
+        type: string
+      - description: Webhook Payload
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/routes.WebhookBody'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/routes.errResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/routes.errResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/routes.errResponse'
+      summary: Paystack webhook endpoint
+      tags:
+      - Webhooks
 swagger: "2.0"

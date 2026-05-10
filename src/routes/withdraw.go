@@ -34,6 +34,18 @@ type WithddrawParams struct {
 	Metadata             map[string]interface{} `json:"metadata"`
 }
 
+// HandleWithdraw debits funds from an account to the system settlement account.
+// @Summary Withdraw funds from account
+// @Description Debits funds from an account to the system settlement account. Supports idempotent withdrawals.
+// @Tags Withdrawals
+// @Accept json
+// @Produce json
+// @Param body body WithddrawParams true "Withdrawal Details"
+// @Success 201 {object} TransferResponse
+// @Failure 400 {object} errResponse
+// @Failure 404 {object} errResponse
+// @Failure 500 {object} errResponse
+// @Router /account/withdraw [post]
 func (api *ApiConfig) HandleWithdraw(w http.ResponseWriter, r *http.Request) {
 	bodyBytes, err := io.ReadAll(r.Body)
 	if err != nil {

@@ -15,7 +15,7 @@ type WebhookBody struct {
 	Event string          `json:"event"`
 	ID    string          `json:"id"`
 	Type  string          `json:"type"`
-	Data  json.RawMessage `json:"data"`
+	Data  json.RawMessage `json:"data" swaggertype:"object"`
 }
 
 type WebhookTransferData struct {
@@ -26,7 +26,7 @@ type WebhookTransferData struct {
 	AccountNumber string          `json:"account_number"`
 	BankCode      string          `json:"bank_code"`
 	FullName      string          `json:"full_name"`
-	Customer      json.RawMessage `json:"customer"`
+	Customer      json.RawMessage `json:"customer" swaggertype:"object"`
 	Reference     string          `json:"reference"`
 	Status        string          `json:"status"`
 	FailureReason string          `json:"failure_reason"`
@@ -38,6 +38,19 @@ type Customer struct {
 	FullName      string `json:"full_name"`
 }
 
+// HandlePaystackWebhook receives and processes webhook events from Paystack.
+// @Summary Paystack webhook endpoint
+// @Description Receives webhook events from Paystack. Supported events: transfer.success, transfer.failed, transfer.reversed.
+// @Tags Webhooks
+// @Accept json
+// @Produce json
+// @Param X-Paystack-Signature header string true "HMAC-SHA512 signature"
+// @Param body body WebhookBody true "Webhook Payload"
+// @Success 200 {object} map[string]string
+// @Failure 400 {object} errResponse
+// @Failure 401 {object} errResponse
+// @Failure 500 {object} errResponse
+// @Router /webhook/paystack [post]
 func (api *ApiConfig) HandlePaystackWebhook(w http.ResponseWriter, r *http.Request) {
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
@@ -82,7 +95,6 @@ func (api *ApiConfig) HandleWebhookLogic(ctx context.Context, data WebhookBody, 
 	case "transfer.failed", "transfer.reversed":
 		api.handleTransferFailed(ctx, nil, data.Data)
 	default:
-		// Unknown event — acknowledge and ignore"
 	}
 	if err != nil {
 		log.Printf("Worker failed to process webhook %s: %v", data.ID, err)

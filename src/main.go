@@ -17,7 +17,15 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
 	_ "github.com/lib/pq"
+	httpSwagger "github.com/swaggo/http-swagger/v2"
 )
+
+// @title Distributed Payments Engine API
+// @version 1.0.0
+// @description A comprehensive distributed payment processing system with support for transfers, deposits, withdrawals, and holds.
+// @host localhost:8080
+// @BasePath /v1
+// @query.collection.format multi
 
 func main() {
 	godotenv.Load("../.env")
@@ -87,6 +95,10 @@ func main() {
 		AllowCredentials: false,
 		MaxAge:           300,
 	}))
+
+	// Serve Swagger UI
+	// By importing the docs package, httpSwagger will automatically find the generated doc.json
+	router.Get("/swagger/*", httpSwagger.Handler())
 
 	v1Router := chi.NewRouter()
 	v1Router.Get("/healthz", routes.HandleHealthCheck)
