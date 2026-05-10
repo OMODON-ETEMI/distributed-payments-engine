@@ -22,13 +22,30 @@ VALUES (
 RETURNING *;
 
 -- name: ListPendingOutboxEvents :many
-SELECT *
-FROM outbox_events
-WHERE status IN ('pending', 'failed')
-  AND (next_retry_at IS NULL OR next_retry_at <= now())
-ORDER BY created_at ASC
-LIMIT $1
-FOR UPDATE SKIP LOCKED;
+WITH selected_events AS (
+    SELECT id 
+    FROM outbox_events
+    WHERE status IN ('pending', 'failed')
+      AND (next_retry_at IS NULL OR next_retry_at <= now())
+    ORDER BY created_at ASC
+    LIMIT $1
+    FOR UPDATE SKIP LOCKED
+)
+UPDATE outbox_events
+SET 
+    status = 'processing',
+    updated_at = now()
+FROM selected_events
+WHERE outbox_events.id = selected_events.id
+RETURNING outbox_events.*;
+
+-- name: ResetStuckOutboxEvent :exec 
+UPDATE outbox_events
+SET status = 'pending',
+    retry_count = retry_count + 1,
+    updated_at = now()
+WHERE status = 'processing' AND updated_at < now() - INTERVAL '5 minutes';
+
 
 -- name: MarkOutboxEventPublished :one
 UPDATE outbox_events

@@ -455,6 +455,36 @@ BEFORE UPDATE ON outbox_events
 FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
 -- -----------------------------------------------------------------------------
+-- INCOMING WEBHOOKS (generic storage for external events)
+-- -----------------------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS incoming_webhooks (
+    id                  uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    provider            text NOT NULL,
+    external_event_id   text,
+    event_type          text,
+    payload             jsonb NOT NULL,
+    headers             jsonb NOT NULL DEFAULT '{}'::jsonb,
+    status              text NOT NULL DEFAULT 'pending',
+    processed_at        timestamptz,
+    error_message       text,
+    created_at          timestamptz NOT NULL DEFAULT now(),
+    updated_at          timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT incoming_webhooks_payload_is_object CHECK (jsonb_typeof(payload) = 'object'),
+    CONSTRAINT incoming_webhooks_headers_is_object CHECK (jsonb_typeof(headers) = 'object'),
+    CONSTRAINT incoming_webhooks_provider_not_blank CHECK (length(btrim(provider)) > 0)
+);
+
+CREATE INDEX IF NOT EXISTS incoming_webhooks_status_idx ON incoming_webhooks (status, created_at ASC);
+CREATE INDEX IF NOT EXISTS incoming_webhooks_provider_event_idx ON incoming_webhooks (provider, external_event_id);
+
+DROP TRIGGER IF EXISTS trg_incoming_webhooks_updated_at ON incoming_webhooks;
+CREATE TRIGGER trg_incoming_webhooks_updated_at
+BEFORE UPDATE ON incoming_webhooks
+FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+
+-- -----------------------------------------------------------------------------
 -- AUDIT LOGS (append-only)
 -- -----------------------------------------------------------------------------
 
@@ -564,6 +594,23 @@ FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 -- LEDGER INVARIANTS HELPERS
 -- -----------------------------------------------------------------------------
 
+CREATE OR REPLACE FUNCTION notify_event()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    channel text := TG_TABLE_NAME || '_inserted';
+    payload jsonb;
+BEGIN
+    payload := jsonb_build_object(
+        'id', NEW.id,
+        'table', TG_TABLE_NAME
+    );
+    PERFORM pg_notify(channel, payload::text);
+    RETURN NEW;
+END;
+$$;
+
 CREATE OR REPLACE FUNCTION validate_journal_transaction_double_entry()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -631,6 +678,17 @@ DROP TRIGGER IF EXISTS trg_reconciliation_batches_no_delete ON reconciliation_ba
 CREATE TRIGGER trg_reconciliation_batches_no_delete
 BEFORE DELETE ON reconciliation_batches
 FOR EACH ROW EXECUTE FUNCTION prevent_updates_to_immutable_ledger_rows();
+
+-- Notification triggers for real-time processing
+DROP TRIGGER IF EXISTS trg_incoming_webhooks_notify ON incoming_webhooks;
+CREATE TRIGGER trg_incoming_webhooks_notify
+AFTER INSERT ON incoming_webhooks
+FOR EACH ROW EXECUTE FUNCTION notify_event();
+
+DROP TRIGGER IF EXISTS trg_outbox_events_notify ON outbox_events;
+CREATE TRIGGER trg_outbox_events_notify
+AFTER INSERT ON outbox_events
+FOR EACH ROW EXECUTE FUNCTION notify_event();
 
 -- Balance projections can be rebuilt, but still only updated explicitly by services.
 -- No auto trigger here; sqlc/pgx services should use version checks in application logic.

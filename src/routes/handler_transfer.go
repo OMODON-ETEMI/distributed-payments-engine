@@ -44,6 +44,18 @@ type GetTransferByIDParams struct {
 	TransferID string `json:"transfer_id"`
 }
 
+// HandleCreateTransfer creates a money transfer from one account to another.
+// @Summary Create a transfer between accounts
+// @Description Creates a money transfer from one account to another with automatic fee collection. Supports idempotent transfers.
+// @Tags Transfers
+// @Accept json
+// @Produce json
+// @Param body body TransferParams true "Transfer Details"
+// @Success 201 {object} TransferResponse
+// @Failure 400 {object} errResponse
+// @Failure 404 {object} errResponse
+// @Failure 500 {object} errResponse
+// @Router /account/transfer [post]
 func (api *ApiConfig) HandleCreateTransfer(w http.ResponseWriter, r *http.Request) {
 	bodyBytes, err := io.ReadAll(r.Body)
 	if err != nil {
@@ -369,7 +381,6 @@ func (api *ApiConfig) HandleCreateTransfer(w http.ResponseWriter, r *http.Reques
 		if err != nil {
 			return fmt.Errorf("failed to marshal outbox headers: %w", err)
 		}
-		partitionKey := pgtype.Text{String: trf.ID.String(), Valid: true}
 
 		_, err = q.CreateOutboxEvent(r.Context(), db.CreateOutboxEventParams{
 			AggregateType:    "transfer_request",
@@ -378,7 +389,19 @@ func (api *ApiConfig) HandleCreateTransfer(w http.ResponseWriter, r *http.Reques
 			IdempotencyKeyID: idempkey.ID,
 			Payload:          payloadBytes,
 			Headers:          headersBytes,
-			PartitionKey:     partitionKey,
+			PartitionKey:     pgtype.Text{String: trf.SourceAccountID.String(), Valid: true},
+		})
+		if err != nil {
+			return fmt.Errorf("failed to create outbox event: %w", err)
+		}
+		_, err = q.CreateOutboxEvent(r.Context(), db.CreateOutboxEventParams{
+			AggregateType:    "transfer_request",
+			AggregateID:      trf.ID,
+			EventType:        "transfer.posted",
+			IdempotencyKeyID: idempkey.ID,
+			Payload:          payloadBytes,
+			Headers:          headersBytes,
+			PartitionKey:     pgtype.Text{String: trf.DestinationAccountID.String(), Valid: true},
 		})
 		if err != nil {
 			return fmt.Errorf("failed to create outbox event: %w", err)
@@ -396,6 +419,17 @@ func (api *ApiConfig) HandleCreateTransfer(w http.ResponseWriter, r *http.Reques
 	respondeWithJson(w, 201, ToTransferResponse(trf, &jtx))
 }
 
+// GetTransferbyID retrieves details of a specific transfer transaction.
+// @Summary Get transfer by ID
+// @Description Retrieves details of a specific transfer transaction.
+// @Tags Transfers
+// @Produce json
+// @Param id path string true "Transfer UUID" format(uuid)
+// @Success 201 {object} TransferResponse
+// @Failure 400 {object} errResponse
+// @Failure 404 {object} errResponse
+// @Failure 500 {object} errResponse
+// @Router /transfer/{id} [get]
 func (api *ApiConfig) GetTransferbyID(w http.ResponseWriter, r *http.Request) {
 	transferIDStr := chi.URLParam(r, "id")
 	if transferIDStr == "" {

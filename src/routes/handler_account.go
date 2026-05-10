@@ -27,6 +27,17 @@ type AccountParameters struct {
 	Offset           int                    `json:"offset"`
 }
 
+// HandleCreateAccount creates a new account for a customer.
+// @Summary Create a new account
+// @Description Creates a new account for a customer. Idempotent by external_ref and account_number.
+// @Tags Accounts
+// @Accept json
+// @Produce json
+// @Param body body AccountParameters true "Account Creation Details"
+// @Success 200 {object} AccountResponse
+// @Failure 400 {object} errResponse
+// @Failure 500 {object} errResponse
+// @Router /create/account [post]
 func (api *ApiConfig) HandleCreateAccount(w http.ResponseWriter, r *http.Request) {
 	decoder := json.NewDecoder(r.Body)
 	params := AccountParameters{}
@@ -97,6 +108,17 @@ func (api *ApiConfig) HandleCreateAccount(w http.ResponseWriter, r *http.Request
 	respondeWithJson(w, 200, AccountResponseObject(account))
 }
 
+// HandleGetAccountByAccountNumber retrieves account details by its account number.
+// @Summary Get account by account number
+// @Description Retrieves account details by its account number.
+// @Tags Accounts
+// @Produce json
+// @Param number path string true "Account number"
+// @Success 200 {object} AccountResponse
+// @Failure 400 {object} errResponse
+// @Failure 404 {object} errResponse
+// @Failure 500 {object} errResponse
+// @Router /account/number/{number} [get]
 func (api *ApiConfig) HandleGetAccountByAccountNumber(w http.ResponseWriter, r *http.Request) {
 	AccountNumber := chi.URLParam(r, "number")
 	if AccountNumber == "" {
@@ -116,6 +138,17 @@ func (api *ApiConfig) HandleGetAccountByAccountNumber(w http.ResponseWriter, r *
 	respondeWithJson(w, 200, AccountResponseObject(account))
 }
 
+// HandleListAccountByCustomer returns paginated list of accounts owned by a specific customer.
+// @Summary List accounts for a customer
+// @Description Returns paginated list of accounts owned by a specific customer.
+// @Tags Accounts
+// @Accept json
+// @Produce json
+// @Param body body AccountParameters true "Customer ID and Pagination details"
+// @Success 200 {array} AccountResponse
+// @Failure 400 {object} errResponse
+// @Failure 500 {object} errResponse
+// @Router /list/accounts/customer [post]
 func (api *ApiConfig) HandleListAccountByCustomer(w http.ResponseWriter, r *http.Request) {
 	decoder := json.NewDecoder(r.Body)
 	params := AccountParameters{}
@@ -163,6 +196,18 @@ func (api *ApiConfig) HandleListAccountByCustomer(w http.ResponseWriter, r *http
 	respondeWithJson(w, 200, accounts)
 }
 
+// HandleUpdateAccountStatus updates the status of an existing account.
+// @Summary Update account status
+// @Description Updates the status of an existing account (e.g., active, suspended, closed).
+// @Tags Accounts
+// @Accept json
+// @Produce json
+// @Param body body AccountParameters true "Account ID and New Status"
+// @Success 200 {object} AccountResponse
+// @Failure 400 {object} errResponse
+// @Failure 404 {object} errResponse
+// @Failure 500 {object} errResponse
+// @Router /update/account [post]
 func (api *ApiConfig) HandleUpdateAccountStatus(w http.ResponseWriter, r *http.Request) {
 	decoder := json.NewDecoder(r.Body)
 	params := AccountParameters{}

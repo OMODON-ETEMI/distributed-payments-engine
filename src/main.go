@@ -9,15 +9,23 @@ import (
 	"time"
 
 	_ "github.com/OMODON-ETEMI/distributed-payments-engine/docs"
-	// db "github.com/OMODON-ETEMI/distributed-payments-engine/src/database/gen"
 	"github.com/OMODON-ETEMI/distributed-payments-engine/src/database"
+	"github.com/OMODON-ETEMI/distributed-payments-engine/src/internal/messaging/producer"
 	"github.com/OMODON-ETEMI/distributed-payments-engine/src/routes"
 	"github.com/go-chi/chi"
 	"github.com/go-chi/cors"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
 	_ "github.com/lib/pq"
+	httpSwagger "github.com/swaggo/http-swagger/v2"
 )
+
+// @title Distributed Payments Engine API
+// @version 1.0.0
+// @description A comprehensive distributed payment processing system with support for transfers, deposits, withdrawals, and holds.
+// @host localhost:8080
+// @BasePath /v1
+// @query.collection.format multi
 
 func main() {
 	godotenv.Load("../.env")
@@ -25,6 +33,11 @@ func main() {
 	portString := os.Getenv("PORT")
 	if portString == "" {
 		log.Fatal("PORT is not found in the enviroment")
+	}
+
+	kafkaBroker := os.Getenv("KAFKA_BROKER")
+	if kafkaBroker == "" {
+		log.Fatal("KAFKA_BROKER is not found in the environment")
 	}
 
 	dbUrl := os.Getenv("e2e_TEST_DB_URL")
@@ -39,6 +52,13 @@ func main() {
 	}
 	defer connPool.Close()
 
+	// Initialize Kafka Producer
+	kafkaProducer, err := producer.NewKafkaProducer(kafkaBroker)
+	if err != nil {
+		log.Fatalf("Failed to create Kafka producer: %v", err)
+	}
+	defer kafkaProducer.Close()
+
 	// Initialize Redis client
 	redisClient := routes.NewRedis()
 
@@ -50,12 +70,14 @@ func main() {
 		MaxRequests:              1,
 		Interval:                 5 * time.Second,
 		Timeout:                  10 * time.Second,
-		ConsecutiveFailThreshold: 3, // Trip after 3 consecutive failures
+		ConsecutiveFailThreshold: 3,
 	}
 	mockProviderBreaker := routes.NewProviderBreaker(mockProvider, breakerConfig)
 
 	api := &routes.ApiConfig{
+		Kafka:  kafkaProducer,
 		Db:     database.NewDb(connPool),
+		DbPool: connPool,
 		Redis:  redisClient,
 		Router: routes.NewPaymentRouter([]*routes.ProviderBreaker{mockProviderBreaker}),
 	}
@@ -74,8 +96,12 @@ func main() {
 		MaxAge:           300,
 	}))
 
+	// Serve Swagger UI
+	// By importing the docs package, httpSwagger will automatically find the generated doc.json
+	router.Get("/swagger/*", httpSwagger.Handler())
+
 	v1Router := chi.NewRouter()
-	// v1Router.Get("/healthz", routes.HandleReadiness)
+	v1Router.Get("/healthz", routes.HandleHealthCheck)
 	v1Router.Get("/err", routes.HandleError)
 	v1Router.Post("/create/user", api.HandleCreateUser)
 	v1Router.Get("/user/{id}", api.HandleGetUserById)

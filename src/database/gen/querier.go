@@ -26,6 +26,7 @@ type Querier interface {
 	// Funds holds (reservation) queries
 	CreateHold(ctx context.Context, arg CreateHoldParams) (FundsHold, error)
 	CreateIdempotencyKey(ctx context.Context, arg CreateIdempotencyKeyParams) (IdempotencyKey, error)
+	CreateIncomingWebhook(ctx context.Context, arg CreateIncomingWebhookParams) (IncomingWebhook, error)
 	CreateJournalLine(ctx context.Context, arg CreateJournalLineParams) (JournalLine, error)
 	// Journal transactions & lines
 	CreateJournalTransaction(ctx context.Context, arg CreateJournalTransactionParams) (JournalTransaction, error)
@@ -53,6 +54,9 @@ type Querier interface {
 	GetCustomerByID(ctx context.Context, id pgtype.UUID) (Customer, error)
 	GetIdempotencyKeyByID(ctx context.Context, id pgtype.UUID) (IdempotencyKey, error)
 	GetIdempotencyKeyByScopeAndKey(ctx context.Context, arg GetIdempotencyKeyByScopeAndKeyParams) (IdempotencyKey, error)
+	// Used to prevent duplicate processing of the same event from the same provider
+	GetIncomingWebhookByExternalID(ctx context.Context, arg GetIncomingWebhookByExternalIDParams) (IncomingWebhook, error)
+	GetIncomingWebhookByID(ctx context.Context, id pgtype.UUID) (IncomingWebhook, error)
 	// Journal transaction: lock header for update
 	GetJournalTransactionByIDForUpdate(ctx context.Context, id pgtype.UUID) (JournalTransaction, error)
 	GetJournalTransactionByRef(ctx context.Context, transactionRef string) (JournalTransaction, error)
@@ -64,6 +68,7 @@ type Querier interface {
 	ListAccountsByCustomer(ctx context.Context, arg ListAccountsByCustomerParams) ([]Account, error)
 	ListCustomers(ctx context.Context, arg ListCustomersParams) ([]Customer, error)
 	ListJournalLinesForTransaction(ctx context.Context, journalTransactionID pgtype.UUID) ([]JournalLine, error)
+	ListPendingIncomingWebhooks(ctx context.Context, limit int32) ([]IncomingWebhook, error)
 	ListPendingOutboxEvents(ctx context.Context, limit int32) ([]OutboxEvent, error)
 	ListReconciliationItemsForBatch(ctx context.Context, reconciliationBatchID pgtype.UUID) ([]ReconciliationItem, error)
 	ListTransferRequestsByCustomer(ctx context.Context, arg ListTransferRequestsByCustomerParams) ([]TransferRequest, error)
@@ -74,9 +79,11 @@ type Querier interface {
 	MarkReconciliationItemMatched(ctx context.Context, arg MarkReconciliationItemMatchedParams) (ReconciliationItem, error)
 	RebuildBalanceProjection(ctx context.Context, arg RebuildBalanceProjectionParams) error
 	ReleaseHold(ctx context.Context, arg ReleaseHoldParams) (FundsHold, error)
+	ResetStuckOutboxEvent(ctx context.Context) error
 	UpdateAccountStatus(ctx context.Context, arg UpdateAccountStatusParams) (Account, error)
 	UpdateCustomerStatus(ctx context.Context, arg UpdateCustomerStatusParams) (Customer, error)
 	UpdateIdempotencyKeyResponse(ctx context.Context, arg UpdateIdempotencyKeyResponseParams) (IdempotencyKey, error)
+	UpdateIncomingWebhookStatus(ctx context.Context, arg UpdateIncomingWebhookStatusParams) (IncomingWebhook, error)
 	UpdateTransferRequestExternalRef(ctx context.Context, arg UpdateTransferRequestExternalRefParams) (TransferRequest, error)
 	UpdateTransferRequestStatus(ctx context.Context, arg UpdateTransferRequestStatusParams) (TransferRequest, error)
 	// Params: account_id, currency_code, balance_kind, ledger_balance, available_balance, held_balance, last_tx_id, last_line_id, expected_version
