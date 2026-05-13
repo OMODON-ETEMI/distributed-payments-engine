@@ -10,8 +10,11 @@ import (
 
 	_ "github.com/OMODON-ETEMI/distributed-payments-engine/docs"
 	"github.com/OMODON-ETEMI/distributed-payments-engine/src/database"
+	"github.com/OMODON-ETEMI/distributed-payments-engine/src/internal/messaging/consumer"
 	"github.com/OMODON-ETEMI/distributed-payments-engine/src/internal/messaging/producer"
+	"github.com/OMODON-ETEMI/distributed-payments-engine/src/internal/worker"
 	"github.com/OMODON-ETEMI/distributed-payments-engine/src/routes"
+	"github.com/confluentinc/confluent-kafka-go/v2/kafka"
 	"github.com/go-chi/chi"
 	"github.com/go-chi/cors"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -39,6 +42,10 @@ func main() {
 	if kafkaBroker == "" {
 		log.Fatal("KAFKA_BROKER is not found in the environment")
 	}
+	kafkaGroupID := os.Getenv("KAFKA_GROUP_ID")
+	if kafkaGroupID == "" {
+		kafkaGroupID = "payment-engine-workers"
+	}
 
 	dbUrl := os.Getenv("e2e_TEST_DB_URL")
 	if dbUrl == "" {
@@ -59,6 +66,27 @@ func main() {
 	}
 	defer kafkaProducer.Close()
 
+	// initialize kafka Consumer
+	kafkaConsumer, err := consumer.NewKafkaConsumer(kafkaBroker, kafkaGroupID)
+	if err != nil {
+		log.Fatalf("Failed to create Kafka consumer: %v", err)
+	}
+	defer kafkaConsumer.Consumer.Close()
+
+	adminClient, err := kafka.NewAdminClient(&kafka.ConfigMap{"bootstrap.servers": kafkaBroker})
+	if err != nil {
+		log.Fatalf("Failed to create Kafka admin client: %v", err)
+	}
+	defer adminClient.Close()
+
+	topics := []kafka.TopicSpecification{
+		{Topic: "withdrawal.webhook", NumPartitions: 3, ReplicationFactor: 1},
+	}
+
+	_, err = adminClient.CreateTopics(ctx, topics)
+	if err != nil {
+		log.Printf("Topic creation note: %v", err)
+	}
 	// Initialize Redis client
 	redisClient := routes.NewRedis()
 
@@ -75,12 +103,18 @@ func main() {
 	mockProviderBreaker := routes.NewProviderBreaker(mockProvider, breakerConfig)
 
 	api := &routes.ApiConfig{
-		Kafka:  kafkaProducer,
-		Db:     database.NewDb(connPool),
-		DbPool: connPool,
-		Redis:  redisClient,
-		Router: routes.NewPaymentRouter([]*routes.ProviderBreaker{mockProviderBreaker}),
+		Kafka_producer: kafkaProducer,
+		Kafka_consumer: kafkaConsumer,
+		Db:             database.NewDb(connPool),
+		DbPool:         connPool,
+		Redis:          redisClient,
+		Router:         routes.NewPaymentRouter([]*routes.ProviderBreaker{mockProviderBreaker}),
 	}
+
+	// Start Kafka Background Worker
+	go worker.StartWithdrawalKafkWorker(ctx, api)
+	go worker.StartdepositKafkWorker(ctx, api)
+	go worker.StartWebhookWorker(ctx, api)
 
 	// Link the provider back to the API config for webhook simulation
 	mockProvider.Api = api

@@ -6,8 +6,10 @@ import (
 	"fmt"
 	"log"
 
+	db "github.com/OMODON-ETEMI/distributed-payments-engine/src/database/gen"
 	"github.com/OMODON-ETEMI/distributed-payments-engine/src/internal/outbox"
 	"github.com/OMODON-ETEMI/distributed-payments-engine/src/routes"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 func StartWebhookWorker(ctx context.Context, api *routes.ApiConfig) {
@@ -21,20 +23,97 @@ func StartWebhookWorker(ctx context.Context, api *routes.ApiConfig) {
 	go Listener(ctx, WorkSignal, OutboxWorkSignal, api)
 }
 
+func StartWithdrawalKafkWorker(ctx context.Context, api *routes.ApiConfig) {
+	topic := "withdrawal.webhook"
+
+	if err := api.Kafka_consumer.Subscribe(topic); err != nil {
+		log.Fatalf("Failed to subscribe to Kafka topic: %v", err)
+	}
+
+	log.Printf("Kafka worker started: consuming topic %s", topic)
+
+	for {
+		msg, err := api.Kafka_consumer.ConsumeMessage(ctx)
+		if err != nil {
+			if ctx.Err() != nil {
+				return
+			}
+			log.Printf("Consumer poll error: %v", err)
+			continue
+		}
+
+		if err := api.ProcessWithdrawalMessage(ctx, msg); err != nil {
+			log.Printf("Failed to process message at offset %v: %v", msg.TopicPartition.Offset, err)
+			continue
+		}
+
+		api.Kafka_consumer.CommitMessage(msg)
+	}
+}
+
+func StartdepositKafkWorker(ctx context.Context, api *routes.ApiConfig) {
+	topic := "deposite.transfer"
+
+	if err := api.Kafka_consumer.Subscribe(topic); err != nil {
+		log.Fatalf("Failed to subscribe to Kafka topic: %v", err)
+	}
+
+	log.Printf("Kafka worker started: consuming topic %s", topic)
+
+	for {
+		msg, err := api.Kafka_consumer.ConsumeMessage(ctx)
+		if err != nil {
+			if ctx.Err() != nil {
+				return
+			}
+			log.Printf("Consumer poll error: %v", err)
+			continue
+		}
+
+		if err := api.ProcessDepositeMessage(ctx, msg); err != nil {
+			log.Printf("Failed to process message at offset %v: %v", msg.TopicPartition.Offset, err)
+			continue
+		}
+
+		api.Kafka_consumer.CommitMessage(msg)
+	}
+}
+
 func WebhookProcessor(ctx context.Context, WorkSignal chan struct{}, api *routes.ApiConfig) {
-	var webhookData routes.WebhookBody
 	for range WorkSignal {
 		webhook, err := api.Db.Queries.ListPendingIncomingWebhooks(ctx, 100)
 		if err != nil || len(webhook) == 0 {
 			continue
 		}
 		for _, w := range webhook {
-			err := json.Unmarshal(w.Payload, &webhookData)
-			if err != nil {
-				fmt.Printf("Error decoding webhook: %v", err)
-				continue
+			var processingErr error
+
+			if w.EventType.String == "withdrawal.webhook" {
+				var webhookData routes.WebhookBody
+				if err := json.Unmarshal(w.Payload, &webhookData); err != nil {
+					processingErr = fmt.Errorf("decoding withdrawal webhook: %w", err)
+				} else {
+					api.HandleWebhookLogic(ctx, webhookData, w)
+					continue
+				}
+			} else if w.EventType.String == "deposite.transfer" {
+				_, processingErr = routes.DepositeLogic(ctx, w.Payload, api)
 			}
-			api.HandleWebhookLogic(ctx, webhookData, w)
+
+			// Handle status updates for non-autonomous logic (like Deposits)
+			if processingErr != nil {
+				log.Printf("Worker failed to process webhook %s: %v", w.ID, processingErr)
+				api.Db.Queries.UpdateIncomingWebhookStatus(ctx, db.UpdateIncomingWebhookStatusParams{
+					Status:       "failed",
+					ErrorMessage: pgtype.Text{String: processingErr.Error(), Valid: true},
+					ID:           w.ID,
+				})
+			} else {
+				api.Db.Queries.UpdateIncomingWebhookStatus(ctx, db.UpdateIncomingWebhookStatusParams{
+					Status: "success",
+					ID:     w.ID,
+				})
+			}
 		}
 	}
 }

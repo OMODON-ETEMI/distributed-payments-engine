@@ -12,10 +12,11 @@ import (
 )
 
 type WebhookBody struct {
-	Event string          `json:"event"`
-	ID    string          `json:"id"`
-	Type  string          `json:"type"`
-	Data  json.RawMessage `json:"data" swaggertype:"object"`
+	Provider string          `json:"provider"`
+	Event    string          `json:"event"`
+	ID       string          `json:"id"`
+	Type     string          `json:"type"`
+	Data     json.RawMessage `json:"data" swaggertype:"object"`
 }
 
 type WebhookTransferData struct {
@@ -66,25 +67,22 @@ func (api *ApiConfig) HandlePaystackWebhook(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	// 2. Parse event
+	// 2. Minimal Metadata Extraction
 	var event WebhookBody
 	if err := json.Unmarshal(body, &event); err != nil {
 		respondWithError(w, 400, "invalid json")
 		return
 	}
 
-	_, err = api.Db.Queries.CreateIncomingWebhook(r.Context(), db.CreateIncomingWebhookParams{
-		Provider:        "paystack",
-		ExternalEventID: pgtype.Text{String: event.ID, Valid: event.ID != ""},
-		EventType:       pgtype.Text{String: event.Type, Valid: event.Type != ""},
-		Payload:         body,
-	})
-	if err != nil {
-		respondWithError(w, 500, "cannot create webhook")
+	// 3. Kafka Handoff (The "Shock Absorber")
+	topic := "withdrawal.webhook"
+	if err := api.Kafka_producer.SendMessage(topic, event.ID, body); err != nil {
+		log.Printf("Kafka Failure: %v", err)
+		respondWithError(w, 500, "internal storage error")
 		return
 	}
-	respondeWithJson(w, 200, map[string]string{"received": "true"})
 
+	respondeWithJson(w, 200, map[string]string{"received": "true"})
 }
 
 func (api *ApiConfig) HandleWebhookLogic(ctx context.Context, data WebhookBody, webhook db.IncomingWebhook) {

@@ -2,10 +2,12 @@ package routes
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"time"
 
@@ -17,6 +19,7 @@ import (
 )
 
 type DepositeParams struct {
+	Provider             string                 `json:"provider"`
 	IdempotencyKeyID     string                 `json:"idempotency_key_id"`
 	CustomerID           string                 `json:"customer_id"`
 	SourceAccountID      string                 `json:"source_account_id"`
@@ -39,7 +42,7 @@ type DepositeParams struct {
 // @Accept json
 // @Produce json
 // @Param body body DepositeParams true "Deposit Details"
-// @Success 201 {object} TransferResponse
+// @Success 202 {object} map[string]interface{}{"success":true,"status":"pending","reference":"DEP-{idempotency_key_id}","message":"Transfer is being processed. You will be notified via webhook."}
 // @Failure 400 {object} errResponse
 // @Failure 404 {object} errResponse
 // @Failure 500 {object} errResponse
@@ -50,7 +53,6 @@ func (api *ApiConfig) HandleDeposite(w http.ResponseWriter, r *http.Request) {
 		respondWithError(w, 500, fmt.Sprintf("Error reading request body: %v", err))
 		return
 	}
-	requestHash := HashRequest(bodyBytes)
 
 	r.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
 	decoder := json.NewDecoder(r.Body)
@@ -59,57 +61,52 @@ func (api *ApiConfig) HandleDeposite(w http.ResponseWriter, r *http.Request) {
 		respondWithError(w, 400, fmt.Sprintf("Error parsing Json: %v", err))
 		return
 	}
-	if params.IdempotencyKeyID == "" || params.CustomerID == "" || params.DestinationAccountID == "" || params.CurrencyCode == "" {
-		respondWithError(w, 400, "missing required fields: idempotency_key_id, customer_id, destination_account_id, currency_code")
+	if params.Provider == "" || params.IdempotencyKeyID == "" || params.CustomerID == "" || params.DestinationAccountID == "" || params.CurrencyCode == "" || params.Sourcesystem == "" || params.Amount == "" || params.FeeAmount == "" || params.ClientReference == "" || params.ExternalReference == "" {
+		respondWithError(w, 400, "missing required fields: provider, idempotency_key_id, customer_id, destination_account_id, currency_code, source_system, amount, fee_amount, client_reference, external_reference")
 		return
 	}
 	if params.Metadata == nil {
 		params.Metadata = make(map[string]interface{})
 	}
+	payload, err := json.Marshal(params)
+	if err != nil {
+		respondWithError(w, 500, fmt.Sprintf("Error parsing Json: %v", err))
+		return
+	}
+	topic := "deposite.transfer"
+	if err := api.Kafka_producer.SendMessage(topic, params.CustomerID, payload); err != nil {
+		log.Printf("Kafka Failure: %v", err)
+		respondWithError(w, 500, "internal storage error")
+		return
+	}
+	respondeWithJson(w, 202, map[string]interface{}{
+		"success":   true,
+		"status":    "pending",
+		"reference": fmt.Sprintf("DEP-%s", params.IdempotencyKeyID),
+		"message":   "Transfer is being processed. You will be notified via webhook.",
+	})
+}
+
+func DepositeLogic(ctx context.Context, payload []byte, api *ApiConfig) (*TransferResponse, error) {
+	var params DepositeParams
+	if err := json.Unmarshal(payload, &params); err != nil {
+		log.Printf("Error parsing payload: %v", err)
+		return nil, err
+	}
+	requestHash := HashRequest(payload)
 	customerID, err := StringtoPgUuid(params.CustomerID)
 	if err != nil {
-		respondWithError(w, 400, fmt.Sprintf("Error parsing customer ID: %v", err))
-		return
+		return nil, fmt.Errorf("Error parsing customer ID: %v", err)
 	}
-	customer, err := api.Db.Queries.GetCustomerByID(r.Context(), customerID)
+	customer, err := api.Db.Queries.GetCustomerByID(ctx, customerID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			respondWithError(w, 404, "customer not found")
-			return
+			return nil, fmt.Errorf("customer not found")
 		}
-		respondWithError(w, 500, fmt.Sprintf("Error looking up customer: %v", err))
-		return
+		return nil, fmt.Errorf("Error looking up customer: %v", err)
 	}
-	systemAcct, err := api.Db.Queries.GetAccountByExternalRef(r.Context(), "system_settlement_ngn")
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			respondWithError(w, 404, "system settlement account not found")
-			return
-		}
-		respondWithError(w, 500, fmt.Sprintf("Error looking up system settlement account: %v", err))
-		return
-	}
-	DestinationAccountID, err := StringtoPgUuid(params.DestinationAccountID)
-	if err != nil {
-		respondWithError(w, 400, fmt.Sprintf("Error parsing Destination account ID: %v", err))
-		return
-	}
-	DestinationAccount, err := api.Db.Queries.GetAccountByID(r.Context(), DestinationAccountID)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			respondWithError(w, 404, "destination account not found")
-			return
-		}
-		respondWithError(w, 500, fmt.Sprintf("Error looking up destination account: %v", err))
-		return
-	}
-	if DestinationAccount.Status != "active" {
-		respondWithError(w, 400, "destination account is not active")
-		return
-	}
-	if params.CurrencyCode != DestinationAccount.CurrencyCode {
-		respondWithError(w, 400, "currency code mismatch")
-		return
+	if customer.Status != "active" {
+		return nil, fmt.Errorf("customer is not active")
 	}
 	amount, err := StringToNumeric(params.Amount)
 	feeAmount, err := StringToNumeric(params.FeeAmount)
@@ -119,29 +116,25 @@ func (api *ApiConfig) HandleDeposite(w http.ResponseWriter, r *http.Request) {
 	if params.Metadata != nil {
 		b, err := json.Marshal(params.Metadata)
 		if err != nil {
-			respondWithError(w, 400, fmt.Sprintf("Error parsing metadata: %v", err))
-			return
+			return nil, fmt.Errorf("Error parsing metadata: %v", err)
 		}
 		metaBytes = b
 	}
 	memo := pgtype.Text{String: params.Memo, Valid: params.Memo != ""}
-	check, err := api.IdemCheck(r.Context(), params.IdempotencyKeyID, params.CustomerID, requestHash, "deposit_create")
+	check, err := api.IdemCheck(ctx, params.IdempotencyKeyID, params.CustomerID, requestHash, "deposit_create")
 	if err != nil {
-		respondWithError(w, 500, fmt.Sprintf("Error checking idempotency key: %v", err))
-		return
+		return nil, fmt.Errorf("Error checking idempotency key: %v", err)
 	}
 	if !check.ShouldProceed {
 		var cachedData TransferResponse
 		err := json.Unmarshal(check.CachedResponse, &cachedData)
 		if err != nil {
 			fmt.Printf("Failed to unmarshal cached response: %v", err)
-			respondeWithJson(w, check.StatusCode, string(check.CachedResponse))
-			return
+			return nil, fmt.Errorf("Failed to unmarshal cached response: %v", err)
 		}
-		respondeWithJson(w, check.StatusCode, cachedData)
-		return
+		return &cachedData, nil
 	}
-	idempkey, err := api.Db.Queries.CreateIdempotencyKey(r.Context(), db.CreateIdempotencyKeyParams{
+	idempkey, err := api.Db.Queries.CreateIdempotencyKey(ctx, db.CreateIdempotencyKeyParams{
 		IdempotencyKey: params.IdempotencyKeyID,
 		Scope:          "deposit_create",
 		RequestHash:    []byte(requestHash),
@@ -151,23 +144,34 @@ func (api *ApiConfig) HandleDeposite(w http.ResponseWriter, r *http.Request) {
 		},
 	})
 	if err != nil {
-		respondWithError(w, 500, fmt.Sprintf("Error creating idempotency key: %v", err))
-		return
+		return nil, fmt.Errorf("Error creating idempotency key: %v", err)
 	}
 
 	var trf db.TransferRequest
 	var jtx db.JournalTransaction
 	var payloadBytes []byte
-	err = api.Db.ExecTx(r.Context(), func(q *db.Queries) error {
-		systemSettleAcct, err := q.GetAccountByIDForUpdate(r.Context(), systemAcct.ID)
+	err = api.Db.ExecTx(ctx, func(q *db.Queries) error {
+		// Optimization: Fetch FOR UPDATE directly inside the TX using the reference/ID
+		// This saves two round trips to the DB.
+		systemSettleAcct, err := q.GetAccountByExternalRef(ctx, "system_settlement_ngn")
 		if err != nil {
 			return fmt.Errorf("Error looking up system settlement account: %v", err)
 		}
-		destAcct, err := q.GetAccountByIDForUpdate(r.Context(), DestinationAccount.ID)
+
+		destUuid, _ := StringtoPgUuid(params.DestinationAccountID)
+		destAcct, err := q.GetAccountByIDForUpdate(ctx, destUuid)
 		if err != nil {
 			return fmt.Errorf("Error looking up destination account: %v", err)
 		}
-		trf, err = q.CreateTransferRequest(r.Context(), db.CreateTransferRequestParams{
+
+		if destAcct.Status != "active" {
+			return fmt.Errorf("destination account is not active")
+		}
+		if params.CurrencyCode != destAcct.CurrencyCode {
+			return fmt.Errorf("currency code mismatch")
+		}
+
+		trf, err = q.CreateTransferRequest(ctx, db.CreateTransferRequestParams{
 			IdempotencyKeyID:     idempkey.ID,
 			CustomerID:           customer.ID,
 			SourceAccountID:      systemSettleAcct.ID,
@@ -183,7 +187,7 @@ func (api *ApiConfig) HandleDeposite(w http.ResponseWriter, r *http.Request) {
 			return fmt.Errorf("Error creating transfer request for deposit: %v", err)
 		}
 
-		jtx, err = q.CreateJournalTransaction(r.Context(), db.CreateJournalTransactionParams{
+		jtx, err = q.CreateJournalTransaction(ctx, db.CreateJournalTransactionParams{
 			TransactionRef:    uuid.NewString(),
 			TransferRequestID: trf.ID,
 			IdempotencyKeyID:  idempkey.ID,
@@ -209,7 +213,7 @@ func (api *ApiConfig) HandleDeposite(w http.ResponseWriter, r *http.Request) {
 		}
 		var destLineID pgtype.UUID
 		for index, leg := range legs {
-			line, err := q.CreateJournalLine(r.Context(), db.CreateJournalLineParams{
+			line, err := q.CreateJournalLine(ctx, db.CreateJournalLineParams{
 				JournalTransactionID: jtx.ID,
 				LineNumber:           int32(index) + 1,
 				AccountID:            leg.AccountID,
@@ -227,12 +231,12 @@ func (api *ApiConfig) HandleDeposite(w http.ResponseWriter, r *http.Request) {
 				destLineID = line.ID
 			}
 		}
-		_, err = q.MarkJournalTransactionPosted(r.Context(), jtx.ID)
+		_, err = q.MarkJournalTransactionPosted(ctx, jtx.ID)
 		if err != nil {
 			return fmt.Errorf("Error Marking journal transaction: %v", err)
 		}
 		balance, err := GetOrCreateBalanceProjection(
-			r.Context(), q,
+			ctx, q,
 			destAcct.ID,
 			params.CurrencyCode,
 			"available",
@@ -250,7 +254,7 @@ func (api *ApiConfig) HandleDeposite(w http.ResponseWriter, r *http.Request) {
 		newDestLedgerNum, err := StringToNumeric(newDestLedger.String())
 		newDestAvailNum, err := StringToNumeric(newDestAvail.String())
 		newDestHeldNum, err := StringToNumeric(newDestHeld.String())
-		err = q.UpsertBalanceProjectionWithExpectedVersion(r.Context(), db.UpsertBalanceProjectionWithExpectedVersionParams{
+		err = q.UpsertBalanceProjectionWithExpectedVersion(ctx, db.UpsertBalanceProjectionWithExpectedVersionParams{
 			AccountID:        destAcct.ID,
 			CurrencyCode:     params.CurrencyCode,
 			BalanceKind:      "available",
@@ -264,7 +268,7 @@ func (api *ApiConfig) HandleDeposite(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return fmt.Errorf("upserting destination balance: %w", err)
 		}
-		trf, err = q.UpdateTransferRequestStatus(r.Context(), db.UpdateTransferRequestStatusParams{
+		trf, err = q.UpdateTransferRequestStatus(ctx, db.UpdateTransferRequestStatusParams{
 			Status: "posted",
 			ID:     trf.ID,
 		})
@@ -287,7 +291,7 @@ func (api *ApiConfig) HandleDeposite(w http.ResponseWriter, r *http.Request) {
 			return fmt.Errorf("failed to marshal outbox headers: %w", err)
 		}
 		partitionKey := pgtype.Text{String: trf.DestinationAccountID.String(), Valid: true}
-		_, err = q.CreateOutboxEvent(r.Context(), db.CreateOutboxEventParams{
+		_, err = q.CreateOutboxEvent(ctx, db.CreateOutboxEventParams{
 			AggregateType:    "transfer_request",
 			AggregateID:      trf.ID,
 			EventType:        "transfer.posted",
@@ -299,14 +303,15 @@ func (api *ApiConfig) HandleDeposite(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return fmt.Errorf("failed to create outbox event: %w", err)
 		}
-		if err := api.saveIdem(r.Context(), params.CustomerID, params.IdempotencyKeyID, idempkey.ID, payloadBytes, 201); err != nil {
+		if err := api.saveIdem(ctx, params.CustomerID, params.IdempotencyKeyID, idempkey.ID, payloadBytes, 201); err != nil {
 			return fmt.Errorf("error saving idempotency key: %v", err)
 		}
 		return nil
 	})
 	if err != nil {
-		respondWithError(w, 500, fmt.Sprintf("transfer failed: %v", err))
-		return
+		return nil, fmt.Errorf("transfer failed: %v", err)
 	}
-	respondeWithJson(w, 201, ToTransferResponse(trf, &jtx))
+	response := ToTransferResponse(trf, &jtx)
+	return &response, nil
+
 }

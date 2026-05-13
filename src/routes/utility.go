@@ -4,12 +4,14 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math/big"
 	"time"
 
 	db "github.com/OMODON-ETEMI/distributed-payments-engine/src/database/gen"
+	"github.com/confluentinc/confluent-kafka-go/v2/kafka"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -168,6 +170,49 @@ func ValidateLedgerBalance(legs []JournalLeg) error {
 		return fmt.Errorf("transaction unbalanced: remainder is %s", sum.String())
 	}
 
+	return nil
+}
+
+func (api *ApiConfig) ProcessWithdrawalMessage(ctx context.Context, msg *kafka.Message) error {
+	var data WebhookBody
+	if err := json.Unmarshal(msg.Value, &data); err != nil {
+		return err
+	}
+
+	// 1. Persist to DB (Idempotency check happens inside your queries)
+	_, err := api.Db.Queries.CreateIncomingWebhook(ctx, db.CreateIncomingWebhookParams{
+		Provider:        data.Provider,
+		EventType:       pgtype.Text{String: *msg.TopicPartition.Topic, Valid: true},
+		ExternalEventID: pgtype.Text{String: data.ID, Valid: true},
+		Payload:         msg.Value,
+	})
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (api *ApiConfig) ProcessDepositeMessage(ctx context.Context, msg *kafka.Message) error {
+	var data DepositeParams
+	if err := json.Unmarshal(msg.Value, &data); err != nil {
+		return err
+	}
+	headerPayload, err := json.Marshal(map[string]interface{}{
+		"X-Paystack-Signature":  fmt.Sprintf("Mock-Sg-%s", uuid.NewString()[:8]),
+		"X-Paystack-Request-Id": data.ExternalReference,
+	})
+
+	// 1. Persist to DB (Idempotency check happens inside your queries)
+	_, err = api.Db.Queries.CreateIncomingWebhook(ctx, db.CreateIncomingWebhookParams{
+		Provider:        data.Provider,
+		EventType:       pgtype.Text{String: *msg.TopicPartition.Topic, Valid: true},
+		ExternalEventID: pgtype.Text{String: data.ExternalReference, Valid: true},
+		Payload:         msg.Value,
+		Headers:         headerPayload,
+	})
+	if err != nil {
+		return err
+	}
 	return nil
 }
 

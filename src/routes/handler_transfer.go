@@ -204,7 +204,7 @@ func (api *ApiConfig) HandleCreateTransfer(w http.ResponseWriter, r *http.Reques
 		amt, _ := decimal.NewFromString(NumericToString(amount))
 		fee, _ := decimal.NewFromString(NumericToString(feeAmount))
 		needed := amt.Add(fee)
-		trf, err := q.CreateTransferRequest(r.Context(), db.CreateTransferRequestParams{
+		trf, err = q.CreateTransferRequest(r.Context(), db.CreateTransferRequestParams{
 			IdempotencyKeyID:     idempkey.ID,
 			CustomerID:           customer.ID,
 			SourceAccountID:      sourceAcct.ID,

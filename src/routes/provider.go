@@ -33,7 +33,7 @@ type InitiateRequest struct {
 }
 
 type InitiateResponse struct {
-	ProviderReference string // Paystack's transfer_code e.g. "TRF_abc123"
+	ProviderReference string
 	Status            string // "pending" — never "success" at this stage
 	QueuedAt          time.Time
 }
@@ -90,9 +90,10 @@ func (m *MockProvider) VerifyWebhookSignature(payload []byte, signature string) 
 func (m *MockProvider) TransferResponse(req InitiateRequest) {
 	// Simulate network latency
 	time.Sleep(2 * time.Second)
+	transfer_id := fmt.Sprintf("MOCK-TRF-%s", uuid.NewString()[:8])
 
 	transferData, _ := json.Marshal(&WebhookTransferData{
-		ID:        "MOCK-TRF-" + uuid.NewString()[:8],
+		ID:        transfer_id,
 		Reference: req.Reference,
 		Status:    "success",
 		BankCode:  "044",
@@ -102,6 +103,8 @@ func (m *MockProvider) TransferResponse(req InitiateRequest) {
 
 	payload, _ := json.Marshal(&WebhookBody{
 		Event: "transfer.success",
+		Type:  "withdrawal.webhook",
+		ID:    transfer_id,
 		Data:  transferData,
 	})
 	go func() {

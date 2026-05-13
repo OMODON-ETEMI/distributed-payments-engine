@@ -6,3 +6,4 @@ dist
 coverage
 distributed-payments-engine.exe
 distributed-payments-engine.exe.stackdump
+tmp/

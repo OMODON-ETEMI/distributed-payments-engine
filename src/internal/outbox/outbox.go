@@ -13,7 +13,7 @@ import (
 func OutboxEventKafka(ctx context.Context, data db.OutboxEvent, api *routes.ApiConfig) error {
 	payload := data.Payload
 
-	err := api.Kafka.SendMessage(data.EventType, data.PartitionKey.String, payload)
+	err := api.Kafka_producer.SendMessage(data.EventType, data.PartitionKey.String, payload)
 	if err != nil {
 		if data.RetryCount > 5 {
 			_, err := api.Db.Queries.MarkOutboxEventDeadLetter(ctx, data.ID)
