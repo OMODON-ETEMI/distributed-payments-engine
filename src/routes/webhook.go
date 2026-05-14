@@ -21,6 +21,7 @@ type WebhookBody struct {
 
 type WebhookTransferData struct {
 	ID            string          `json:"id"`
+	Provider      string          `json:"provider"`
 	Amount        string          `json:"Amount"`
 	Currency      string          `json:"Currency"`
 	Domain        string          `json:"Domain"`

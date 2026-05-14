@@ -95,6 +95,7 @@ func (m *MockProvider) TransferResponse(req InitiateRequest) {
 	transferData, _ := json.Marshal(&WebhookTransferData{
 		ID:        transfer_id,
 		Reference: req.Reference,
+		Provider:  "paystack",
 		Status:    "success",
 		BankCode:  "044",
 		FullName:  "Alexis Sanchez",
