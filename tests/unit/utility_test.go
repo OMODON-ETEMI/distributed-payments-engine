@@ -58,13 +58,13 @@ func TestValidateLedgerBalance_BalancedAndUnbalanced(t *testing.T) {
 	a, _ := routes.StringToNumeric("100")
 	b, _ := routes.StringToNumeric("100")
 
-	balanced := []routes.JournalLeg{{Amount: a, Side: "DEBIT"}, {Amount: b, Side: "CREDIT"}}
+	balanced := []routes.JournalLeg{{Amount: a, Side: "debit"}, {Amount: b, Side: "credit"}}
 	if err := routes.ValidateLedgerBalance(balanced); err != nil {
 		t.Fatalf("expected balanced legs to pass, got: %v", err)
 	}
 
 	c, _ := routes.StringToNumeric("50")
-	unbalanced := []routes.JournalLeg{{Amount: a, Side: "DEBIT"}, {Amount: c, Side: "CREDIT"}}
+	unbalanced := []routes.JournalLeg{{Amount: a, Side: "debit"}, {Amount: c, Side: "credit"}}
 	if err := routes.ValidateLedgerBalance(unbalanced); err == nil {
 		t.Fatalf("expected unbalanced legs to return an error")
 	}

@@ -66,12 +66,18 @@ func main() {
 	}
 	defer kafkaProducer.Close()
 
-	// initialize kafka Consumer
-	kafkaConsumer, err := consumer.NewKafkaConsumer(kafkaBroker, kafkaGroupID)
+	// Initialize dedicated Kafka Consumers for each worker to avoid rebalance fights
+	depositConsumer, err := consumer.NewKafkaConsumer(kafkaBroker, kafkaGroupID)
 	if err != nil {
-		log.Fatalf("Failed to create Kafka consumer: %v", err)
+		log.Fatalf("Failed to create deposit consumer: %v", err)
 	}
-	defer kafkaConsumer.Consumer.Close()
+	defer depositConsumer.Consumer.Close()
+
+	withdrawalConsumer, err := consumer.NewKafkaConsumer(kafkaBroker, kafkaGroupID)
+	if err != nil {
+		log.Fatalf("Failed to create withdrawal consumer: %v", err)
+	}
+	defer withdrawalConsumer.Consumer.Close()
 
 	adminClient, err := kafka.NewAdminClient(&kafka.ConfigMap{"bootstrap.servers": kafkaBroker})
 	if err != nil {
@@ -81,6 +87,7 @@ func main() {
 
 	topics := []kafka.TopicSpecification{
 		{Topic: "withdrawal.webhook", NumPartitions: 3, ReplicationFactor: 1},
+		{Topic: "deposite.transfer", NumPartitions: 3, ReplicationFactor: 1},
 	}
 
 	_, err = adminClient.CreateTopics(ctx, topics)
@@ -104,7 +111,6 @@ func main() {
 
 	api := &routes.ApiConfig{
 		Kafka_producer: kafkaProducer,
-		Kafka_consumer: kafkaConsumer,
 		Db:             database.NewDb(connPool),
 		DbPool:         connPool,
 		Redis:          redisClient,
@@ -112,8 +118,8 @@ func main() {
 	}
 
 	// Start Kafka Background Worker
-	go worker.StartWithdrawalKafkWorker(ctx, api)
-	go worker.StartdepositKafkWorker(ctx, api)
+	go worker.StartWithdrawalKafkWorker(ctx, api, withdrawalConsumer)
+	go worker.StartdepositKafkWorker(ctx, api, depositConsumer)
 	go worker.StartWebhookWorker(ctx, api)
 
 	// Link the provider back to the API config for webhook simulation

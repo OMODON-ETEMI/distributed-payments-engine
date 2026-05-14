@@ -7,6 +7,7 @@ import (
 	"log"
 
 	db "github.com/OMODON-ETEMI/distributed-payments-engine/src/database/gen"
+	"github.com/OMODON-ETEMI/distributed-payments-engine/src/internal/messaging/consumer"
 	"github.com/OMODON-ETEMI/distributed-payments-engine/src/internal/outbox"
 	"github.com/OMODON-ETEMI/distributed-payments-engine/src/routes"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -23,17 +24,17 @@ func StartWebhookWorker(ctx context.Context, api *routes.ApiConfig) {
 	go Listener(ctx, WorkSignal, OutboxWorkSignal, api)
 }
 
-func StartWithdrawalKafkWorker(ctx context.Context, api *routes.ApiConfig) {
+func StartWithdrawalKafkWorker(ctx context.Context, api *routes.ApiConfig, consumer *consumer.KafkaConsumer) {
 	topic := "withdrawal.webhook"
 
-	if err := api.Kafka_consumer.Subscribe(topic); err != nil {
+	if err := consumer.Subscribe(topic); err != nil {
 		log.Fatalf("Failed to subscribe to Kafka topic: %v", err)
 	}
 
 	log.Printf("Kafka worker started: consuming topic %s", topic)
 
 	for {
-		msg, err := api.Kafka_consumer.ConsumeMessage(ctx)
+		msg, err := consumer.ConsumeMessage(ctx)
 		if err != nil {
 			if ctx.Err() != nil {
 				return
@@ -47,21 +48,25 @@ func StartWithdrawalKafkWorker(ctx context.Context, api *routes.ApiConfig) {
 			continue
 		}
 
-		api.Kafka_consumer.CommitMessage(msg)
+		if err := consumer.CommitMessage(msg); err != nil {
+			log.Printf("Failed to commit withdrawal message at offset %v: %v", msg.TopicPartition.Offset, err)
+			continue
+		}
+		log.Printf("✓ Withdrawal message committed at offset %v", msg.TopicPartition.Offset)
 	}
 }
 
-func StartdepositKafkWorker(ctx context.Context, api *routes.ApiConfig) {
+func StartdepositKafkWorker(ctx context.Context, api *routes.ApiConfig, consumer *consumer.KafkaConsumer) {
 	topic := "deposite.transfer"
 
-	if err := api.Kafka_consumer.Subscribe(topic); err != nil {
+	if err := consumer.Subscribe(topic); err != nil {
 		log.Fatalf("Failed to subscribe to Kafka topic: %v", err)
 	}
 
 	log.Printf("Kafka worker started: consuming topic %s", topic)
 
 	for {
-		msg, err := api.Kafka_consumer.ConsumeMessage(ctx)
+		msg, err := consumer.ConsumeMessage(ctx)
 		if err != nil {
 			if ctx.Err() != nil {
 				return
@@ -75,7 +80,11 @@ func StartdepositKafkWorker(ctx context.Context, api *routes.ApiConfig) {
 			continue
 		}
 
-		api.Kafka_consumer.CommitMessage(msg)
+		if err := consumer.CommitMessage(msg); err != nil {
+			log.Printf("Failed to commit deposit message at offset %v: %v", msg.TopicPartition.Offset, err)
+			continue
+		}
+		log.Printf("✓ Deposit message committed at offset %v", msg.TopicPartition.Offset)
 	}
 }
 

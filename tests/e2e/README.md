@@ -41,6 +41,27 @@ Our E2E test suite covers 7 key scenarios using **real HTTP calls** to an alread
 - Tests hold creation and account locking mechanisms
 - **Run**: `TestE2E_AccountHolds`
 
+## Key Test Pattern: Consumer Synchronization
+
+Each E2E test follows a critical pattern to ensure async operations complete:
+
+```
+1. Execute API Request (e.g., Deposit)
+2. **WAIT** via assertBalance() → polls balance endpoint
+3. Once balance confirms, proceed to next operation
+```
+
+**Why?** Deposits/withdrawals flow through Kafka → Background Worker → DB NOTIFY → Balance Update. The `assertBalance()` helper waits up to ~5 seconds for this async chain to complete, guaranteeing data consistency before the next test step.
+
+**Example from TestE2E_CompletePaymentFlow:**
+```go
+depositToAccountE2E(t, client, userID, acctID, "50000")  // Step 1: Deposit
+assertBalance(t, client, acctID, "50000.00000000")        // Step 2: Wait for consistency
+// Now safely call next operation...
+```
+
+This pattern is applied in **all E2E test scenarios** to prevent race conditions and flaky tests.
+
 ## Prerequisites
 
 Before running E2E tests, ensure:

@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"math/big"
 	"time"
 
@@ -178,13 +179,22 @@ func (api *ApiConfig) ProcessWithdrawalMessage(ctx context.Context, msg *kafka.M
 	if err := json.Unmarshal(msg.Value, &data); err != nil {
 		return err
 	}
+	// Generate mock headers to satisfy the NOT NULL constraint and consistency
+	headerPayload, err := json.Marshal(map[string]interface{}{
+		"X-Paystack-Signature":  fmt.Sprintf("Mock-Sg-%s", uuid.NewString()[:8]),
+		"X-Paystack-Request-Id": data.ID,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to marshal headers: %w", err)
+	}
 
 	// 1. Persist to DB (Idempotency check happens inside your queries)
-	_, err := api.Db.Queries.CreateIncomingWebhook(ctx, db.CreateIncomingWebhookParams{
+	_, err = api.Db.Queries.CreateIncomingWebhook(ctx, db.CreateIncomingWebhookParams{
 		Provider:        data.Provider,
 		EventType:       pgtype.Text{String: *msg.TopicPartition.Topic, Valid: true},
 		ExternalEventID: pgtype.Text{String: data.ID, Valid: true},
 		Payload:         msg.Value,
+		Headers:         headerPayload,
 	})
 	if err != nil {
 		return err
@@ -201,6 +211,10 @@ func (api *ApiConfig) ProcessDepositeMessage(ctx context.Context, msg *kafka.Mes
 		"X-Paystack-Signature":  fmt.Sprintf("Mock-Sg-%s", uuid.NewString()[:8]),
 		"X-Paystack-Request-Id": data.ExternalReference,
 	})
+	if err != nil {
+		log.Printf("Failed to marshal headers for deposite message: %v", err)
+		return err
+	}
 
 	// 1. Persist to DB (Idempotency check happens inside your queries)
 	_, err = api.Db.Queries.CreateIncomingWebhook(ctx, db.CreateIncomingWebhookParams{

@@ -10,11 +10,21 @@ import (
 	"github.com/OMODON-ETEMI/distributed-payments-engine/src/routes"
 )
 
+// MockKafkaProducer simulates the Kafka producer for testing
+type MockKafkaProducer struct{}
+
+func (m *MockKafkaProducer) SendMessage(topic, key string, payload []byte) error {
+	return nil // Simulate successful send
+}
+
+func (m *MockKafkaProducer) Close() {}
+
 func TestHandlePaystackWebhook_SignatureAndRouting(t *testing.T) {
 	p := routes.NewMockProvider("paystack", 0.0)
 	pb := routes.NewProviderBreaker(p, routes.BreakerConfig{MaxRequests: 1, Interval: time.Second, Timeout: time.Second, ConsecutiveFailThreshold: 1})
 	router := routes.NewPaymentRouter([]*routes.ProviderBreaker{pb})
-	api := &routes.ApiConfig{Router: router}
+	// Pass the mock producer here to "simulate" Kafka
+	api := &routes.ApiConfig{Router: router, Kafka_producer: &MockKafkaProducer{}}
 
 	// invalid signature
 	w := httptest.NewRecorder()

@@ -13,10 +13,15 @@ type KafkaConsumer struct {
 
 func NewKafkaConsumer(broker, groupID string) (*KafkaConsumer, error) {
 	c, err := kafka.NewConsumer(&kafka.ConfigMap{
-		"bootstrap.servers":  broker,
-		"group.id":           groupID,
-		"auto.offset.reset":  "earliest",
-		"enable.auto.commit": false,
+		"bootstrap.servers":     broker,
+		"group.id":              groupID,
+		"auto.offset.reset":     "earliest",          // Financial system: consume ALL messages (safer)
+		"enable.auto.commit":    false,               // Manual commit for reliability
+		"fetch.wait.max.ms":     10,                  // Poll every 10ms for responsiveness
+		"fetch.min.bytes":       1,                   // Get messages immediately, don't batch
+		"session.timeout.ms":    6000,                // Faster rebalancing
+		"heartbeat.interval.ms": 1000,                // More frequent heartbeats
+		"isolation.level":       "read_committed",    // Only read committed messages (transactions)
 	})
 	if err != nil {
 		return nil, err
@@ -36,19 +41,16 @@ func (wc *KafkaConsumer) ConsumeMessage(ctx context.Context) (*kafka.Message, er
 		case <-ctx.Done():
 			return nil, ctx.Err()
 		default:
-			// We use a short timeout (100ms) so the loop can
-			// frequently check if the context has been cancelled.
-			ev := wc.Consumer.Poll(100)
+			ev := wc.Consumer.Poll(5)  // ✅ Poll every 5ms instead of 10ms for faster consumption
 			if ev == nil {
 				continue
 			}
 
 			switch e := ev.(type) {
 			case *kafka.Message:
-				// Return the specific message instance 'e'
+				log.Printf("Received message: %s\n", string(e.Value))
 				return e, nil
 			case kafka.Error:
-				// If the error is fatal, we should stop and return it
 				if e.IsFatal() {
 					return nil, e
 				}

@@ -2,7 +2,6 @@ BEGIN;
 
 DROP TRIGGER IF EXISTS trg_journal_lines_double_entry ON journal_lines;
 DROP TRIGGER IF EXISTS trg_journal_lines_no_update ON journal_lines;
-DROP TRIGGER IF EXISTS trg_journal_transactions_no_update ON journal_transactions;
 DROP TRIGGER IF EXISTS trg_audit_logs_no_update ON audit_logs;
 DROP TRIGGER IF EXISTS trg_reconciliation_items_no_update ON reconciliation_items;
 DROP TRIGGER IF EXISTS trg_reconciliation_batches_no_delete ON reconciliation_batches;
@@ -17,6 +16,9 @@ DROP TRIGGER IF EXISTS trg_journal_transactions_updated_at ON journal_transactio
 DROP TRIGGER IF EXISTS trg_outbox_events_updated_at ON outbox_events;
 DROP TRIGGER IF EXISTS trg_reconciliation_batches_updated_at ON reconciliation_batches;
 DROP TRIGGER IF EXISTS trg_reconciliation_items_updated_at ON reconciliation_items;
+DROP TRIGGER IF EXISTS trg_incoming_webhooks_updated_at ON incoming_webhooks;
+DROP TRIGGER IF EXISTS trg_incoming_webhooks_notify ON incoming_webhooks;
+DROP TRIGGER IF EXISTS trg_outbox_events_notify ON outbox_events;
 
 -- ------------------------------------------------------------------
 -- DROP FUNCTIONS
@@ -24,6 +26,7 @@ DROP TRIGGER IF EXISTS trg_reconciliation_items_updated_at ON reconciliation_ite
 
 DROP FUNCTION IF EXISTS validate_journal_transaction_double_entry();
 DROP FUNCTION IF EXISTS prevent_updates_to_immutable_ledger_rows();
+DROP FUNCTION IF EXISTS notify_event();
 DROP FUNCTION IF EXISTS set_updated_at();
 
 -- ------------------------------------------------------------------
@@ -32,6 +35,7 @@ DROP FUNCTION IF EXISTS set_updated_at();
 
 DROP TABLE IF EXISTS reconciliation_items;
 DROP TABLE IF EXISTS reconciliation_batches;
+DROP TABLE IF EXISTS incoming_webhooks;
 DROP TABLE IF EXISTS audit_logs;
 DROP TABLE IF EXISTS outbox_events;
 DROP TABLE IF EXISTS balance_projections;

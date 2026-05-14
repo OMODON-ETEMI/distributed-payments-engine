@@ -97,6 +97,7 @@ func TestE2E_CompletePaymentFlow(t *testing.T) {
 
 	// 3. Deposit funds
 	depositPayload := map[string]interface{}{
+		"provider":               "paystack",
 		"idempotency_key_id":     uuid.NewString(),
 		"customer_id":            userID,
 		"destination_account_id": accountID,
@@ -105,13 +106,15 @@ func TestE2E_CompletePaymentFlow(t *testing.T) {
 		"fee_amount":             "0",
 		"source_system":          "e2e_test",
 		"description":            "e2e test deposit",
+		"client_reference":       uuid.NewString(),
+		"external_reference":     uuid.NewString(),
 	}
 	depositBody, _ := json.Marshal(depositPayload)
 	resp, err = client.Post(baseURL+"/v1/account/deposite", "application/json", bytes.NewBuffer(depositBody))
 	if err != nil {
 		t.Fatalf("Deposit request failed: %v", err)
 	}
-	if resp.StatusCode != 200 && resp.StatusCode != 201 {
+	if resp.StatusCode != 202 {
 		body, _ := io.ReadAll(resp.Body)
 		t.Fatalf("HandleDeposite failed: %d - %s", resp.StatusCode, string(body))
 	}
@@ -140,6 +143,8 @@ func TestE2E_MultipleTransfers(t *testing.T) {
 	depositToAccountE2E(t, client, user1ID, acct1ID, "100000")
 	t.Logf("✓ Deposit to account 1: 100000 NGN")
 
+	assertBalance(t, client, acct1ID, "100000.00000000")
+
 	// Transfer from account 1 to account 2
 	tfrPayload := map[string]interface{}{
 		"idempotency_key_id":     uuid.NewString(),
@@ -157,7 +162,7 @@ func TestE2E_MultipleTransfers(t *testing.T) {
 	if err != nil {
 		t.Logf("Transfer request failed: %v", err)
 	} else {
-		if resp.StatusCode >= 500 {
+		if resp.StatusCode >= 400 {
 			body, _ := io.ReadAll(resp.Body)
 			t.Logf("Transfer server error: %d - %s", resp.StatusCode, string(body))
 		}
@@ -181,6 +186,7 @@ func TestE2E_IdempotencyAcrossRetries(t *testing.T) {
 	// Create a deposit with idempotency key
 	idempKey := uuid.NewString()
 	depositPayload := map[string]interface{}{
+		"provider":               "paystack",
 		"idempotency_key_id":     idempKey,
 		"customer_id":            userID,
 		"destination_account_id": acctID,
@@ -189,6 +195,8 @@ func TestE2E_IdempotencyAcrossRetries(t *testing.T) {
 		"fee_amount":             "0",
 		"source_system":          "e2e",
 		"description":            "idempotent deposit",
+		"client_reference":       uuid.NewString(),
+		"external_reference":     uuid.NewString(),
 	}
 	depositBody, _ := json.Marshal(depositPayload)
 
@@ -197,7 +205,7 @@ func TestE2E_IdempotencyAcrossRetries(t *testing.T) {
 	if err != nil {
 		t.Fatalf("First deposit request failed: %v", err)
 	}
-	if resp.StatusCode != 200 && resp.StatusCode != 201 {
+	if resp.StatusCode != 202 {
 		body, _ := io.ReadAll(resp.Body)
 		t.Fatalf("First deposit failed: %d - %s", resp.StatusCode, string(body))
 	}
@@ -205,9 +213,9 @@ func TestE2E_IdempotencyAcrossRetries(t *testing.T) {
 	var resp1 map[string]interface{}
 	json.NewDecoder(resp.Body).Decode(&resp1)
 	resp.Body.Close()
-	firstID := ""
-	if id, ok := resp1["id"]; ok {
-		firstID = id.(string)
+	firstRef := ""
+	if ref, ok := resp1["reference"]; ok {
+		firstRef = ref.(string)
 	}
 
 	// Retry with same idempotency key
@@ -216,21 +224,21 @@ func TestE2E_IdempotencyAcrossRetries(t *testing.T) {
 	if err != nil {
 		t.Logf("Retry request failed: %v", err)
 	} else {
-		if resp.StatusCode != 200 && resp.StatusCode != 201 {
+		if resp.StatusCode != 202 {
 			t.Logf("Retry returned: %d (expected idempotent response)", resp.StatusCode)
 		}
 
 		var resp2 map[string]interface{}
 		json.NewDecoder(resp.Body).Decode(&resp2)
 		resp.Body.Close()
-		secondID := ""
-		if id, ok := resp2["id"]; ok {
-			secondID = id.(string)
+		secondRef := ""
+		if ref, ok := resp2["reference"]; ok {
+			secondRef = ref.(string)
 		}
 
 		// Verify same response
-		if firstID != "" && firstID == secondID {
-			t.Logf("✓ Idempotency verified: same ID returned %s", firstID)
+		if firstRef != "" && firstRef == secondRef {
+			t.Logf("✓ Idempotency verified: same reference returned %s", firstRef)
 		}
 	}
 	assertBalance(t, client, acctID, "60000.00000000")
@@ -249,6 +257,7 @@ func TestE2E_ProviderFailureRecovery(t *testing.T) {
 	userID2 := createUserE2E(t, client, "dana_failures_dest")
 	acctID2 := createAccountE2E(t, client, userID2, "3350")
 	depositToAccountE2E(t, client, userID, acctID, "75000")
+	assertBalance(t, client, acctID, "75000.00000000")
 
 	// Attempt multiple transfers (some may fail due to mock provider)
 	successCount := 0
@@ -271,7 +280,7 @@ func TestE2E_ProviderFailureRecovery(t *testing.T) {
 		if err != nil {
 			failureCount++
 		} else {
-			if resp.StatusCode < 500 {
+			if resp.StatusCode < 400 {
 				successCount++
 			} else {
 				failureCount++
@@ -294,33 +303,54 @@ func TestE2E_WebhookEventProcessing(t *testing.T) {
 	userID := createUserE2E(t, client, "emma_webhook")
 	acctID := createAccountE2E(t, client, userID, "3400")
 	depositToAccountE2E(t, client, userID, acctID, "50000")
+	assertBalance(t, client, acctID, "50000.00000000")
 
-	// Simulate transfer initiation
-	transferRef := uuid.NewString()
-
+	// 1. Initiate Withdrawal (Creates Hold)
 	tfrPayload := map[string]interface{}{
-		"idempotency_key_id": transferRef,
+		"idempotency_key_id": uuid.NewString(),
 		"customer_id":        userID,
 		"source_account_id":  acctID,
 		"currency_code":      "NGN",
 		"amount":             "10000",
-		"fee_amount":         "100",
+		"fee_amount":         "0",
 		"source_system":      "e2e",
 		"description":        "webhook test",
 	}
 	tfrBody, _ := json.Marshal(tfrPayload)
-	var respData map[string]interface{}
 	resp, err := client.Post(baseURL+"/v1/account/withdraw", "application/json", bytes.NewBuffer(tfrBody))
-	if err != nil {
-		t.Logf("Transfer request failed: %v", err)
-	} else {
-		json.NewDecoder(resp.Body).Decode(&respData)
-		t.Logf("Transfer response: %+v", respData)
-		resp.Body.Close()
-		t.Logf("✓ Transfer initiated: %s", transferRef)
+	if err != nil || resp.StatusCode != 201 {
+		t.Fatalf("Withdrawal initiation failed")
 	}
+	var withdrawResp struct {
+		Transfer struct {
+			ID string `json:"id"`
+		} `json:"transfer"`
+	}
+	json.NewDecoder(resp.Body).Decode(&withdrawResp)
+	resp.Body.Close()
+	transferID := withdrawResp.Transfer.ID
 
-	t.Logf("✅ Webhook event processing verified")
+	// 2. Simulate Paystack Webhook Success
+	webhookPayload := map[string]interface{}{
+		"event": "transfer.success",
+		"data": map[string]interface{}{
+			"reference": transferID,
+			"status":    "success",
+			"id":        "PAYSTACK_TRF_123",
+		},
+	}
+	webhookBody, _ := json.Marshal(webhookPayload)
+	req, _ := http.NewRequest("POST", baseURL+"/v1/webhook/paystack", bytes.NewBuffer(webhookBody))
+	req.Header.Set("X-Paystack-Signature", "mock-signature")
+	resp, err = client.Do(req)
+	if err != nil || resp.StatusCode != 200 {
+		t.Fatalf("Webhook simulation failed: %v", err)
+	}
+	resp.Body.Close()
+
+	// 3. Verify final balance (50,000 - 10,000 = 40,000)
+	assertBalance(t, client, acctID, "40000.00000000")
+	t.Logf("✅ Webhook event processing verified: Ledger settled to 40,000")
 }
 
 // ─── Scenario 6: High Concurrency ─────────────────────────────────
@@ -334,6 +364,7 @@ func TestE2E_ConcurrentTransfers(t *testing.T) {
 	userID2 := createUserE2E(t, client, "frank_concurrent_21")
 	acctID2 := createAccountE2E(t, client, userID2, "3600")
 	depositToAccountE2E(t, client, userID, acctID, "500000")
+	assertBalance(t, client, acctID, "500000.00000000")
 
 	// Run 10 concurrent transfers
 	done := make(chan bool, 10)
@@ -382,26 +413,47 @@ func TestE2E_AccountHolds(t *testing.T) {
 	userID := createUserE2E(t, client, "grace_holds")
 	acctID := createAccountE2E(t, client, userID, "3600")
 	depositToAccountE2E(t, client, userID, acctID, "100000")
+	assertBalance(t, client, acctID, "100000.00000000")
 
-	// Create a hold (if available)
-	holdPayload := map[string]interface{}{
-		"account_id": acctID,
-		"amount":     "25000",
-		"reason":     "pending transfer",
-		"expires_at": time.Now().Add(24 * time.Hour),
+	// 1. Create a withdrawal to trigger a hold
+	tfrPayload := map[string]interface{}{
+		"idempotency_key_id": uuid.NewString(),
+		"customer_id":        userID,
+		"source_account_id":  acctID,
+		"currency_code":      "NGN",
+		"amount":             "25000",
+		"fee_amount":         "0",
+		"source_system":      "e2e",
+		"description":        "hold test",
 	}
-	holdBody, _ := json.Marshal(holdPayload)
-	resp, err := client.Post(baseURL+"/v1/account/hold", "application/json", bytes.NewBuffer(holdBody))
-	if err != nil {
-		t.Logf("Hold creation request failed: %v", err)
-	} else {
-		if resp.StatusCode < 500 {
-			t.Logf("✓ Hold created on account: %s", acctID)
-		}
-		resp.Body.Close()
+	tfrBody, _ := json.Marshal(tfrPayload)
+	resp, err := client.Post(baseURL+"/v1/account/withdraw", "application/json", bytes.NewBuffer(tfrBody))
+	if err != nil || resp.StatusCode != 201 {
+		t.Fatalf("Withdrawal for hold failed")
+	}
+	var withdrawResp struct {
+		Transfer struct {
+			ID string `json:"id"`
+		} `json:"transfer"`
+	}
+	json.NewDecoder(resp.Body).Decode(&withdrawResp)
+	resp.Body.Close()
+	transferID := withdrawResp.Transfer.ID
+
+	// 2. Query the hold via admin endpoint
+	resp, err = client.Get(baseURL + "/v1/admin/hold/" + transferID)
+	if err != nil || resp.StatusCode != 200 {
+		t.Fatalf("Failed to fetch hold for transfer %s: %v", transferID, err)
+	}
+	var holdResp map[string]interface{}
+	json.NewDecoder(resp.Body).Decode(&holdResp)
+	resp.Body.Close()
+
+	if holdResp["status"] != "active" {
+		t.Errorf("Expected hold status 'active', got %v", holdResp["status"])
 	}
 
-	t.Logf("✅ Account holds scenario completed")
+	t.Logf("✅ Account holds scenario: Hold verified as active for %s", transferID)
 }
 
 // ─── Scenario 8: Insufficient Funds ────────────────────────────────────
@@ -414,6 +466,7 @@ func TestE2E_InsufficientFunds(t *testing.T) {
 	acctID := createAccountE2E(t, client, userID, "3700")
 	acctID2 := createAccountE2E(t, client, userID2, "3400")
 	depositToAccountE2E(t, client, userID, acctID, "10000")
+	assertBalance(t, client, acctID, "10000.00000000")
 
 	// Try to transfer more than balance
 	tfrPayload := map[string]interface{}{
@@ -492,6 +545,7 @@ func createAccountE2E(t *testing.T, client *http.Client, userID string, acctPref
 
 func depositToAccountE2E(t *testing.T, client *http.Client, userID string, acctID string, amount string) {
 	depositPayload := map[string]interface{}{
+		"provider":               "paystack",
 		"idempotency_key_id":     uuid.NewString(),
 		"customer_id":            userID,
 		"destination_account_id": acctID,
@@ -500,13 +554,15 @@ func depositToAccountE2E(t *testing.T, client *http.Client, userID string, acctI
 		"fee_amount":             "0",
 		"source_system":          "e2e",
 		"description":            "test deposit",
+		"client_reference":       uuid.NewString(),
+		"external_reference":     uuid.NewString(),
 	}
 	depositBody, _ := json.Marshal(depositPayload)
 	resp, err := client.Post(baseURL+"/v1/account/deposite", "application/json", bytes.NewBuffer(depositBody))
 	if err != nil {
 		t.Fatalf("depositToAccountE2E request failed: %v", err)
 	}
-	if resp.StatusCode != 200 && resp.StatusCode != 201 {
+	if resp.StatusCode != 202 {
 		body, _ := io.ReadAll(resp.Body)
 		resp.Body.Close()
 		t.Fatalf("depositToAccountE2E failed: %d - %s", resp.StatusCode, string(body))
@@ -515,41 +571,33 @@ func depositToAccountE2E(t *testing.T, client *http.Client, userID string, acctI
 }
 
 func assertBalance(t *testing.T, client *http.Client, accountID string, expectedAvailable string) {
-	resp, err := client.Get(baseURL + "/v1/account/" + accountID + "/balances")
-	if err != nil {
-		t.Fatalf("balance check failed: %v", err)
-	}
-	defer resp.Body.Close()
+	// Since deposits/withdrawals use Kafka + async webhook processing, we need generous timeout
+	// Flow: API → Kafka → Worker → DB NOTIFY → Listener → WebhookProcessor → Balance Created
+	var lastBalance string
+	maxRetries := 100 // ~5 seconds total (100 × 50ms)
+	for i := 0; i < maxRetries; i++ {
+		resp, err := client.Get(baseURL + "/v1/account/" + accountID + "/balances")
+		if err != nil {
+			t.Fatalf("balance check failed: %v", err)
+		}
 
-	// 1. Decode as a SLICE [] because the response starts with [
-	var balList []map[string]interface{}
-	if err := json.NewDecoder(resp.Body).Decode(&balList); err != nil {
-		t.Fatalf("failed to decode balance list: %v", err)
-	}
+		var balList []map[string]interface{}
+		if err := json.NewDecoder(resp.Body).Decode(&balList); err != nil {
+			resp.Body.Close()
+			t.Fatalf("failed to decode balance list: %v", err)
+		}
+		resp.Body.Close()
 
-	// 2. Check if we actually got data back
-	if len(balList) == 0 {
-		t.Fatalf("no balances returned for account %s", accountID)
-	}
-
-	// 3. Extract the amount carefully.
-	// Note: Check your JSON keys! Your log showed "Available" (Uppercase)
-	// and "Amount", but your code used "available_balance".
-
-	firstEntry := balList[0]
-	availableObj, ok := firstEntry["available_balance"].(map[string]interface{})
-	if !ok {
-		t.Fatalf("Available field missing or invalid in response: %v", firstEntry)
-	}
-
-	available, ok := availableObj["amount"].(string)
-	if !ok {
-		// If Amount is a number in JSON, use . (float64) instead of .(string)
-		t.Fatalf("Amount field missing or not a string in response")
+		if len(balList) > 0 {
+			availableObj := balList[0]["available_balance"].(map[string]interface{})
+			lastBalance = availableObj["amount"].(string)
+			if lastBalance == expectedAvailable {
+				t.Logf("✓ Balance verified: %s NGN available (attempt %d/%d)", lastBalance, i+1, maxRetries)
+				return
+			}
+		}
+		time.Sleep(50 * time.Millisecond)
 	}
 
-	if available != expectedAvailable {
-		t.Fatalf("balance mismatch: expected %s got %s", expectedAvailable, available)
-	}
-	t.Logf("✓ Balance verified: %s NGN available", available)
+	t.Fatalf("balance mismatch after retries: expected %s got %s (checked %d times over ~%.1fs)", expectedAvailable, lastBalance, maxRetries, float64(maxRetries)*0.05)
 }

@@ -24,6 +24,11 @@ var (
 	testAPI   *routes.ApiConfig
 )
 
+type MockKafkaProducer struct{}
+
+func (m *MockKafkaProducer) SendMessage(topic, key string, payload []byte) error { return nil }
+func (m *MockKafkaProducer) Close()                                              {}
+
 func setup(t *testing.T) {
 	ctx := context.Background()
 
@@ -43,7 +48,7 @@ func setup(t *testing.T) {
 	}
 
 	testDb = database.NewDb(connPool)
-	testRedis = redis.NewClient(&redis.Options{Addr: "localhost:6379"})
+	testRedis = redis.NewClient(&redis.Options{Addr: "redis:6379"})
 
 	// Test Redis connection
 	_, err = testRedis.Ping(ctx).Result()
@@ -60,9 +65,10 @@ func setup(t *testing.T) {
 	}
 	mockProviderBreaker := routes.NewProviderBreaker(mockProvider, breakerConfig)
 	testAPI = &routes.ApiConfig{
-		Db:     testDb,
-		Redis:  testRedis,
-		Router: routes.NewPaymentRouter([]*routes.ProviderBreaker{mockProviderBreaker}),
+		Kafka_producer: &MockKafkaProducer{},
+		Db:             testDb,
+		Redis:          testRedis,
+		Router:         routes.NewPaymentRouter([]*routes.ProviderBreaker{mockProviderBreaker}),
 	}
 	mockProvider.Api = testAPI
 
@@ -136,6 +142,7 @@ func TestIntegration_FullUserAccountWorkflow(t *testing.T) {
 	// 4. Deposit (add funds)
 	idempKey := uuid.NewString()
 	depositPayload := map[string]interface{}{
+		"provider":               "paystack",
 		"idempotency_key_id":     idempKey,
 		"customer_id":            userID,
 		"destination_account_id": accountID,
@@ -144,13 +151,15 @@ func TestIntegration_FullUserAccountWorkflow(t *testing.T) {
 		"fee_amount":             "0",
 		"source_system":          "test_system",
 		"description":            "test deposit",
+		"client_reference":       uuid.NewString(),
+		"external_reference":     uuid.NewString(),
 	}
 	depBody, _ := json.Marshal(depositPayload)
 	w = httptest.NewRecorder()
 	req = httptest.NewRequest("POST", "/v1/account/1/deposite", bytes.NewBuffer(depBody))
 	testAPI.HandleDeposite(w, req)
-	if w.Code != 201 && w.Code != 200 {
-		t.Logf("HandleDeposite: status %d (expected 201), response: %s", w.Code, w.Body.String())
+	if w.Code != 202 {
+		t.Fatalf("HandleDeposite failed with status %d: %s", w.Code, w.Body.String())
 	}
 
 	t.Logf("✓ Full workflow: user created %s, account %s, deposit processed", userID, accountID)

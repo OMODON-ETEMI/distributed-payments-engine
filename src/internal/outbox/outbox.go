@@ -2,6 +2,7 @@ package outbox
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 
@@ -11,9 +12,12 @@ import (
 )
 
 func OutboxEventKafka(ctx context.Context, data db.OutboxEvent, api *routes.ApiConfig) error {
-	payload := data.Payload
+	payload, err := json.Marshal(data)
+	if err != nil {
+		return fmt.Errorf("failed to marshal outbox payload: %w", err)
+	}
 
-	err := api.Kafka_producer.SendMessage(data.EventType, data.PartitionKey.String, payload)
+	err = api.Kafka_producer.SendMessage(data.EventType, data.PartitionKey.String, payload)
 	if err != nil {
 		if data.RetryCount > 5 {
 			_, err := api.Db.Queries.MarkOutboxEventDeadLetter(ctx, data.ID)

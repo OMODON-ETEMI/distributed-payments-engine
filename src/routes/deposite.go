@@ -292,7 +292,7 @@ func DepositeLogic(ctx context.Context, payload []byte, api *ApiConfig) (*Transf
 		}
 		partitionKey := pgtype.Text{String: trf.DestinationAccountID.String(), Valid: true}
 		_, err = q.CreateOutboxEvent(ctx, db.CreateOutboxEventParams{
-			AggregateType:    "transfer_request",
+			AggregateType:    "deposit_request",
 			AggregateID:      trf.ID,
 			EventType:        "transfer.posted",
 			IdempotencyKeyID: idempkey.ID,
