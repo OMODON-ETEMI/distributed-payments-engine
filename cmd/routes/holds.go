@@ -32,7 +32,15 @@ func (api *ApiConfig) ConsumeHold(w http.ResponseWriter, r *http.Request) {
 		internal.RespondWithError(w, 400, fmt.Sprintf("Error parsing json: %v", err))
 		return
 	}
-
+	if params.ID == "" || params.Amount == "" {
+		internal.RespondWithError(w, 400, "missing required fields: id, amount")
+		return
+	}
+	_, err = internal.StringToNumeric(params.Amount)
+	if err != nil {
+		internal.RespondWithError(w, 400, fmt.Sprintf("Error parsing amount: %v", err))
+		return
+	}
 	err = services.ConsumeHold(r.Context(), params, api.Db.Queries)
 	if err != nil {
 		internal.RespondWithError(w, 500, err.Error())

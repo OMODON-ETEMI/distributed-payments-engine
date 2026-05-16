@@ -224,7 +224,6 @@ func ProcessWithdrawalMessage(ctx context.Context, queries *db.Queries, msg *kaf
 		return fmt.Errorf("failed to marshal headers: %w", err)
 	}
 
-	// 1. Persist to DB (Idempotency check happens inside your queries)
 	_, err = queries.CreateIncomingWebhook(ctx, db.CreateIncomingWebhookParams{
 		Provider:        data.Provider,
 		EventType:       pgtype.Text{String: *msg.TopicPartition.Topic, Valid: true},

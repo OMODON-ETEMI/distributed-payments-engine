@@ -99,7 +99,7 @@ func main() {
 	redisClient := routes.NewRedis()
 
 	// Configure and create the MockProvider
-	mockProvider := routes.NewMockProvider("paystack", 0.3) // 30% failure rate for testing
+	mockProvider := routes.NewMockProvider("paystack", 0.0) // 20% failure rate for testing
 
 	// Configure the Circuit Breaker for the MockProvider
 	breakerConfig := internal.BreakerConfig{

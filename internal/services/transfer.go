@@ -62,9 +62,14 @@ func CreateTransfer(ctx context.Context, params internal.TransferParams, d *data
 		return nil, fmt.Errorf("invalid fee amount: %w", err)
 	}
 
-	metaBytes, err := json.Marshal(params.Metadata)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal metadata: %w", err)
+	var metaBytes []byte
+	if params.Metadata == nil || len(params.Metadata) == 0 {
+		metaBytes = []byte("{}") // Ensure it's an empty JSON object, not null, to satisfy DB constraint
+	} else {
+		metaBytes, err = json.Marshal(params.Metadata)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal metadata: %w", err)
+		}
 	}
 
 	// 3. Create Idempotency Key record

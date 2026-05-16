@@ -301,24 +301,31 @@ func TestE2E_WebhookEventProcessing(t *testing.T) {
 
 	// Create setup
 	userID := createUserE2E(t, client, "emma_webhook")
+	userID2 := createUserE2E(t, client, "emma_destiantion_acct")
 	acctID := createAccountE2E(t, client, userID, "3400")
+	acctID2 := createAccountE2E(t, client, userID2, "3500")
 	depositToAccountE2E(t, client, userID, acctID, "50000")
 	assertBalance(t, client, acctID, "50000.00000000")
 
 	// 1. Initiate Withdrawal (Creates Hold)
 	tfrPayload := map[string]interface{}{
-		"idempotency_key_id": uuid.NewString(),
-		"customer_id":        userID,
-		"source_account_id":  acctID,
-		"currency_code":      "NGN",
-		"amount":             "10000",
-		"fee_amount":         "0",
-		"source_system":      "e2e",
-		"description":        "webhook test",
+		"idempotency_key_id":     uuid.NewString(),
+		"customer_id":            userID,
+		"source_account_id":      acctID,
+		"destination_account_id": acctID2,
+		"currency_code":          "NGN",
+		"amount":                 "10000",
+		"fee_amount":             "0",
+		"source_system":          "e2e",
+		"description":            "webhook test",
+		"client_reference":       uuid.NewString(),
+		"external_reference":     uuid.NewString(),
 	}
 	tfrBody, _ := json.Marshal(tfrPayload)
 	resp, err := client.Post(baseURL+"/v1/account/withdraw", "application/json", bytes.NewBuffer(tfrBody))
 	if err != nil || resp.StatusCode != 201 {
+		body, _ := io.ReadAll(resp.Body)
+		t.Logf("Withdrawal failed: %d - %s", resp.StatusCode, string(body))
 		t.Fatalf("Withdrawal initiation failed")
 	}
 	var withdrawResp struct {
@@ -332,11 +339,22 @@ func TestE2E_WebhookEventProcessing(t *testing.T) {
 
 	// 2. Simulate Paystack Webhook Success
 	webhookPayload := map[string]interface{}{
-		"event": "transfer.success",
+		"event":    "transfer.success",
+		"id":       "PAYSTACK_TRF_123",
+		"type":     "withdrawal.webhook",
+		"provider": "paystack",
 		"data": map[string]interface{}{
-			"reference": transferID,
-			"status":    "success",
-			"id":        "PAYSTACK_TRF_123",
+			"reference":      transferID,
+			"status":         "success",
+			"id":             "PAYSTACK_TRF_123",
+			"provider":       "paystack",
+			"Amount":         "10000",
+			"Currency":       "NGN",
+			"Domain":         "",
+			"account_number": "",
+			"bank_code":      "044",
+			"full_name":      "Test WEBHOOK processor",
+			"failure_reason": "",
 		},
 	}
 	webhookBody, _ := json.Marshal(webhookPayload)
@@ -411,24 +429,34 @@ func TestE2E_AccountHolds(t *testing.T) {
 	client := &http.Client{Timeout: 10 * time.Second}
 
 	userID := createUserE2E(t, client, "grace_holds")
+	userID2 := createUserE2E(t, client, "grace_holds_destination")
 	acctID := createAccountE2E(t, client, userID, "3600")
+	acctID2 := createAccountE2E(t, client, userID2, "3400")
 	depositToAccountE2E(t, client, userID, acctID, "100000")
 	assertBalance(t, client, acctID, "100000.00000000")
 
 	// 1. Create a withdrawal to trigger a hold
 	tfrPayload := map[string]interface{}{
-		"idempotency_key_id": uuid.NewString(),
-		"customer_id":        userID,
-		"source_account_id":  acctID,
-		"currency_code":      "NGN",
-		"amount":             "25000",
-		"fee_amount":         "0",
-		"source_system":      "e2e",
-		"description":        "hold test",
+		"idempotency_key_id":     uuid.NewString(),
+		"customer_id":            userID,
+		"source_account_id":      acctID,
+		"destination_account_id": acctID2,
+		"currency_code":          "NGN",
+		"amount":                 "25000",
+		"fee_amount":             "0",
+		"source_system":          "e2e",
+		"description":            "hold test",
+		"client_reference":       uuid.NewString(),
+		"external_reference":     uuid.NewString(),
 	}
-	tfrBody, _ := json.Marshal(tfrPayload)
+	tfrBody, err := json.Marshal(tfrPayload)
+	if err != nil {
+		t.Fatalf("Failed to marshal withdrawal payload: %v", err)
+	}
 	resp, err := client.Post(baseURL+"/v1/account/withdraw", "application/json", bytes.NewBuffer(tfrBody))
 	if err != nil || resp.StatusCode != 201 {
+		body, _ := io.ReadAll(resp.Body)
+		t.Logf("Withdrawal failed: %d - %s", resp.StatusCode, string(body))
 		t.Fatalf("Withdrawal for hold failed")
 	}
 	var withdrawResp struct {

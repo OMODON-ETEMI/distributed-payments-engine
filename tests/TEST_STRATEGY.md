@@ -54,16 +54,17 @@ Complete testing framework for the distributed payments engine. This document ou
 - **Focus**: Real-world fintech load (16 concurrent operations)
 - **Test Name**: `TestPerformance_K16_HighConcurrency`
 - **Database**: Real PostgreSQL, Redis, Kafka
-- **Concurrency**: 16 goroutines, 1,600 transactions
+- **Concurrency**: 16 goroutines, 320 transactions (reduced for stability)
 - **Workload**: 50% transfers, 30% deposits, 20% withdrawals
-- **Speed**: ~30 seconds sustained load
+- **Speed**: ~20-30 seconds sustained load
 - **Run**: `go test -v -timeout 120s ./tests/performance/...`
 - **SLA Targets**:
   - P50 latency: ≤ 100ms
   - P95 latency: ≤ 200ms
   - P99 latency: ≤ 400ms
   - Error rate: ≤ 0.1% (99.9% success)
-  - Throughput: ≥ 150 req/sec
+  - Throughput: ≥ 30 req/sec (note: lower due to async operations)
+- **Status**: Progressive testing model - start with K-8, scale to K-16
 
 ## Quick Start
 

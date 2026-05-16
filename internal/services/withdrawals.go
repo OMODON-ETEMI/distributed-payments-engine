@@ -65,13 +65,14 @@ func WithdrawalLogic(ctx context.Context, payload []byte, d *database.Db, rdb *r
 
 	amount, err := internal.StringToNumeric(params.Amount)
 	feeAmount, err := internal.StringToNumeric(params.FeeAmount)
-	metaBytes := []byte("null")
-	if params.Metadata != nil {
-		b, err := json.Marshal(params.Metadata)
+	var metaBytes []byte
+	if params.Metadata == nil || len(params.Metadata) == 0 {
+		metaBytes = []byte("{}") // Ensure it's an empty JSON object, not null, to satisfy DB constraint
+	} else {
+		metaBytes, err = json.Marshal(params.Metadata)
 		if err != nil {
-			return nil, fmt.Errorf("error parsing metadata: %v", err)
+			return nil, fmt.Errorf("failed to marshal metadata: %w", err)
 		}
-		metaBytes = b
 	}
 
 	check, err := internal.IdemCheck(ctx, d.Queries, rdb, params.IdempotencyKeyID, params.CustomerID, requestHash, "withdraw_create")
@@ -246,6 +247,7 @@ func WithdrawalLogic(ctx context.Context, payload []byte, d *database.Db, rdb *r
 
 	if err != nil {
 		jsonData, _ := json.Marshal(internal.WebhookTransferData{
+			Provider:      "SYSTEM",
 			ID:            trf.CustomerID.String(),
 			Reference:     trf.ID.String(),
 			Status:        "failed",

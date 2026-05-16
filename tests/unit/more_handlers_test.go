@@ -19,7 +19,6 @@ func TestUserAndAccountHandlers_EarlyValidation(t *testing.T) {
 	if w.Code != 400 {
 		t.Fatalf("HandleGetUserByExternalRef: expected 400 for missing external_ref got %d", w.Code)
 	}
-	log.Printf("GetUserByExternalRef response: %s", w.Body.String())
 
 	// GetUserById -> invalid id
 	w = httptest.NewRecorder()
@@ -28,7 +27,6 @@ func TestUserAndAccountHandlers_EarlyValidation(t *testing.T) {
 	if w.Code != 400 {
 		t.Fatalf("HandleGetUserById: expected 400 for invalid id got %d", w.Code)
 	}
-	log.Printf("GetUserById response: %s", w.Body.String())
 
 	// HandleUserUpdateStatus -> missing status
 	w = httptest.NewRecorder()
@@ -37,7 +35,6 @@ func TestUserAndAccountHandlers_EarlyValidation(t *testing.T) {
 	if w.Code != 400 {
 		t.Fatalf("HandleUserUpdateStatus: expected 400 for missing status got %d", w.Code)
 	}
-	log.Printf("UserUpdateStatus response: %s", w.Body.String())
 
 	// HandleGetAccountByAccountNumber -> missing account_number
 	w = httptest.NewRecorder()
@@ -46,7 +43,6 @@ func TestUserAndAccountHandlers_EarlyValidation(t *testing.T) {
 	if w.Code != 400 {
 		t.Fatalf("HandleGetAccountByAccountNumber: expected 400 for missing account_number got %d", w.Code)
 	}
-	log.Printf("GetAccountByAccountNumber response: %s", w.Body.String())
 
 	// HandleListAccountByCustomer -> missing customer_id
 	w = httptest.NewRecorder()
@@ -55,7 +51,6 @@ func TestUserAndAccountHandlers_EarlyValidation(t *testing.T) {
 	if w.Code != 400 {
 		t.Fatalf("HandleListAccountByCustomer: expected 400 for missing customer_id got %d", w.Code)
 	}
-	log.Printf("ListAccountByCustomer response: %s", w.Body.String())
 
 	// HandleUpdateAccountStatus -> missing status
 	w = httptest.NewRecorder()
@@ -64,7 +59,6 @@ func TestUserAndAccountHandlers_EarlyValidation(t *testing.T) {
 	if w.Code != 400 {
 		t.Fatalf("HandleUpdateAccountStatus: expected 400 for missing status got %d", w.Code)
 	}
-	log.Printf("UpdateAccountStatus response: %s", w.Body.String())
 }
 
 func TestConsumeHold_InvalidAmount(t *testing.T) {

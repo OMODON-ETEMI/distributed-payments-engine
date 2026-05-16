@@ -94,6 +94,10 @@ func (api *ApiConfig) HandleListAccountByCustomer(w http.ResponseWriter, r *http
 		internal.RespondWithError(w, 400, fmt.Sprintf("Error parsing Json: %v", err))
 		return
 	}
+	if params.CustomerID == "" {
+		internal.RespondWithError(w, 400, "Customer ID is required")
+		return
+	}
 
 	accounts, err := services.ListAccountsByCustomer(r.Context(), params, api.Db.Queries)
 	if err != nil {
@@ -124,7 +128,14 @@ func (api *ApiConfig) HandleUpdateAccountStatus(w http.ResponseWriter, r *http.R
 		internal.RespondWithError(w, 400, fmt.Sprintf("Error parsing Json: %v", err))
 		return
 	}
-
+	if params.CustomerID == "" {
+		internal.RespondWithError(w, 400, "Account ID is required")
+		return
+	}
+	if params.Status == "" {
+		internal.RespondWithError(w, 400, "Status is required")
+		return
+	}
 	account, err := services.UpdateAccountStatus(r.Context(), params, api.Db.Queries)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {

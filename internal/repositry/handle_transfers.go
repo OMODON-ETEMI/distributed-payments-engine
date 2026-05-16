@@ -21,7 +21,10 @@ func HandleTransferFailed(ctx context.Context, data json.RawMessage, d *database
 	var transferData internal.WebhookTransferData
 
 	requestHash := internal.HashRequest(data)
-	json.Unmarshal(data, &transferData)
+	err := json.Unmarshal(data, &transferData)
+	if err != nil {
+		return fmt.Errorf("invalid transfer data: %s", err)
+	}
 
 	trfID, _ := internal.StringtoPgUuid(transferData.Reference)
 

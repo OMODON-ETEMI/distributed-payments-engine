@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"fmt"
 	"log"
 
 	"github.com/OMODON-ETEMI/distributed-payments-engine/cmd/database"
@@ -18,8 +19,9 @@ func HandleWebhookLogic(ctx context.Context, data internal.WebhookBody, webhook 
 	case "transfer.success":
 		err = repositry.HandleTransferSuccess(ctx, data.Data, d, rdb)
 	case "transfer.failed", "transfer.reversed":
-		repositry.HandleTransferFailed(ctx, data.Data, d, rdb)
+		err = repositry.HandleTransferFailed(ctx, data.Data, d, rdb)
 	default:
+		err = fmt.Errorf("unhandled event: %s", data.Event)
 	}
 	if err != nil {
 		log.Printf("Worker failed to process webhook %s: %v", data.ID, err)

@@ -110,10 +110,11 @@ func (m *MockProvider) TransferResponse(req internal.InitiateRequest) {
 	}
 
 	payload, err := json.Marshal(&internal.WebhookBody{
-		Event: webhookEvent,
-		Type:  "withdrawal.webhook",
-		ID:    webhookTransferID, // Webhook's own ID
-		Data:  transferData,
+		Provider: "paystack",
+		Event:    webhookEvent,
+		Type:     "withdrawal.webhook",
+		ID:       webhookTransferID, // Webhook's own ID
+		Data:     transferData,
 	})
 	if err != nil {
 		log.Printf("Error marshaling WebhookBody: %v", err)
