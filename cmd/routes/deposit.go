@@ -8,7 +8,7 @@ import (
 	"log"
 	"net/http"
 
-	internal "github.com/OMODON-ETEMI/distributed-payments-engine/cmd/internal/utilities"
+	internal "github.com/OMODON-ETEMI/distributed-payments-engine/internal/utilities"
 )
 
 // HandleDeposit credits funds to an account from the system settlement account.

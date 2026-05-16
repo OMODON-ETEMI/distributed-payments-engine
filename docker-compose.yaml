@@ -20,7 +20,7 @@ services:
   migrate:
     image: migrate/migrate
     volumes:
-      - ./src/database/migrations:/migrations
+      - ./cmd/database/migrations:/migrations
     command: [
       "-path",
       "/migrations",
@@ -37,7 +37,7 @@ services:
     profiles:
       - tools
     volumes:
-      - ./src/database/migrations:/migrations
+      - ./cmd/database/migrations:/migrations
     command: [
       "-path",
       "/migrations",

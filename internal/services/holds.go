@@ -5,7 +5,7 @@ import (
 	"fmt"
 
 	db "github.com/OMODON-ETEMI/distributed-payments-engine/cmd/database/gen"
-	internal "github.com/OMODON-ETEMI/distributed-payments-engine/cmd/internal/utilities"
+	internal "github.com/OMODON-ETEMI/distributed-payments-engine/internal/utilities"
 )
 
 func ConsumeHold(ctx context.Context, params internal.HoldParams, queries *db.Queries) error {

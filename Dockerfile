@@ -17,7 +17,7 @@ RUN ls -la /app
 
 COPY . .
 
-RUN CGO_ENABLED=1 GOOS=linux go build -o main ./src/main.go
+RUN CGO_ENABLED=1 GOOS=linux go build -o main ./cmd/main.go
 
 
 # --- Final Stage (Production Image) ---

@@ -7,11 +7,11 @@ import (
 	"log"
 
 	db "github.com/OMODON-ETEMI/distributed-payments-engine/cmd/database/gen"
-	"github.com/OMODON-ETEMI/distributed-payments-engine/cmd/internal/messaging/consumer"
-	"github.com/OMODON-ETEMI/distributed-payments-engine/cmd/internal/outbox"
-	"github.com/OMODON-ETEMI/distributed-payments-engine/cmd/internal/services"
-	internal "github.com/OMODON-ETEMI/distributed-payments-engine/cmd/internal/utilities"
 	"github.com/OMODON-ETEMI/distributed-payments-engine/cmd/routes"
+	"github.com/OMODON-ETEMI/distributed-payments-engine/internal/messaging/consumer"
+	"github.com/OMODON-ETEMI/distributed-payments-engine/internal/outbox"
+	"github.com/OMODON-ETEMI/distributed-payments-engine/internal/services"
+	internal "github.com/OMODON-ETEMI/distributed-payments-engine/internal/utilities"
 	"github.com/jackc/pgx/v5/pgtype"
 )
 

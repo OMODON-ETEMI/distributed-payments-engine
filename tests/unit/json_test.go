@@ -5,12 +5,12 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/OMODON-ETEMI/distributed-payments-engine/src/routes"
+	internal "github.com/OMODON-ETEMI/distributed-payments-engine/internal/utilities"
 )
 
 func TestRespondeWithJson_Success(t *testing.T) {
 	w := httptest.NewRecorder()
-	routes.RespondWithJson(w, 201, map[string]string{"ok": "true"})
+	internal.RespondWithJson(w, 201, map[string]string{"ok": "true"})
 	if w.Code != 201 {
 		t.Fatalf("expected status 201 got %d", w.Code)
 	}
@@ -29,7 +29,7 @@ func TestRespondeWithJson_Success(t *testing.T) {
 func TestRespondeWithJson_MarshalFailure(t *testing.T) {
 	w := httptest.NewRecorder()
 	ch := make(chan int)
-	routes.RespondWithJson(w, 200, ch)
+	internal.RespondWithJson(w, 200, ch)
 	if w.Code != 500 {
 		t.Fatalf("expected status 500 for marshal failure got %d", w.Code)
 	}
@@ -37,7 +37,7 @@ func TestRespondeWithJson_MarshalFailure(t *testing.T) {
 
 func TestRespondWithError_FormatsError(t *testing.T) {
 	w := httptest.NewRecorder()
-	routes.RespondWithError(w, 400, "oops")
+	internal.RespondWithError(w, 400, "oops")
 	if w.Code != 400 {
 		t.Fatalf("expected 400 got %d", w.Code)
 	}

@@ -5,7 +5,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/OMODON-ETEMI/distributed-payments-engine/src/routes"
+	"github.com/OMODON-ETEMI/distributed-payments-engine/cmd/routes"
 )
 
 func TestHandlers_EarlyValidation(t *testing.T) {
@@ -37,10 +37,10 @@ func TestHandlers_EarlyValidation(t *testing.T) {
 
 	// Deposite -> missing required fields
 	w = httptest.NewRecorder()
-	req = httptest.NewRequest("POST", "/v1/deposite", bytes.NewBufferString(`{}`))
-	api.HandleDeposite(w, req)
+	req = httptest.NewRequest("POST", "/v1/deposit", bytes.NewBufferString(`{}`))
+	api.HandleDeposit(w, req)
 	if w.Code != 400 {
-		t.Fatalf("HandleDeposite: expected 400 for missing fields got %d", w.Code)
+		t.Fatalf("HandleDeposit: expected 400 for missing fields got %d", w.Code)
 	}
 
 	// Withdraw -> missing required fields
@@ -65,13 +65,5 @@ func TestHandlers_EarlyValidation(t *testing.T) {
 	api.GetHoldBytransferRequest(w, req)
 	if w.Code != 404 {
 		t.Fatalf("GetHoldBytransferRequest: expected 404 for missing transfer_id got %d", w.Code)
-	}
-
-	// HandleError -> should return 400
-	w = httptest.NewRecorder()
-	req = httptest.NewRequest("GET", "/v1/error", nil)
-	routes.HandleError(w, req)
-	if w.Code != 400 {
-		t.Fatalf("HandleError: expected 400 got %d", w.Code)
 	}
 }

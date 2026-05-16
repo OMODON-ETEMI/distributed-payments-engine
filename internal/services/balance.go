@@ -5,7 +5,7 @@ import (
 	"fmt"
 
 	db "github.com/OMODON-ETEMI/distributed-payments-engine/cmd/database/gen"
-	internal "github.com/OMODON-ETEMI/distributed-payments-engine/cmd/internal/utilities"
+	internal "github.com/OMODON-ETEMI/distributed-payments-engine/internal/utilities"
 )
 
 func GetBalance(ctx context.Context, Account internal.AccountResponse, db *db.Queries) (*[]internal.BalanceResponse, error) {

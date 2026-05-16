@@ -6,8 +6,8 @@ import (
 
 	"github.com/OMODON-ETEMI/distributed-payments-engine/cmd/database"
 	db "github.com/OMODON-ETEMI/distributed-payments-engine/cmd/database/gen"
-	repositry "github.com/OMODON-ETEMI/distributed-payments-engine/cmd/internal/repositry"
-	internal "github.com/OMODON-ETEMI/distributed-payments-engine/cmd/internal/utilities"
+	repositry "github.com/OMODON-ETEMI/distributed-payments-engine/internal/repositry"
+	internal "github.com/OMODON-ETEMI/distributed-payments-engine/internal/utilities"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/redis/go-redis/v9"
 )

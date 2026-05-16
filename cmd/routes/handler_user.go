@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/OMODON-ETEMI/distributed-payments-engine/cmd/internal/services"
-	internal "github.com/OMODON-ETEMI/distributed-payments-engine/cmd/internal/utilities"
+	"github.com/OMODON-ETEMI/distributed-payments-engine/internal/services"
+	internal "github.com/OMODON-ETEMI/distributed-payments-engine/internal/utilities"
 	"github.com/go-chi/chi"
 	"github.com/jackc/pgx/v5"
 )

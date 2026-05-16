@@ -5,7 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/OMODON-ETEMI/distributed-payments-engine/src/routes"
+	"github.com/OMODON-ETEMI/distributed-payments-engine/cmd/routes"
+	internal "github.com/OMODON-ETEMI/distributed-payments-engine/internal/utilities"
 )
 
 func TestPaymentRouter_RouteAndSignature(t *testing.T) {
@@ -13,12 +14,12 @@ func TestPaymentRouter_RouteAndSignature(t *testing.T) {
 	p1 := routes.NewMockProvider("p1", 1.0)
 	p2 := routes.NewMockProvider("paystack", 0.0)
 
-	pb1 := routes.NewProviderBreaker(p1, routes.BreakerConfig{MaxRequests: 1, Interval: time.Second, Timeout: time.Second, ConsecutiveFailThreshold: 1})
-	pb2 := routes.NewProviderBreaker(p2, routes.BreakerConfig{MaxRequests: 1, Interval: time.Second, Timeout: time.Second, ConsecutiveFailThreshold: 1})
+	pb1 := routes.NewProviderBreaker(p1, internal.BreakerConfig{MaxRequests: 1, Interval: time.Second, Timeout: time.Second, ConsecutiveFailThreshold: 1})
+	pb2 := routes.NewProviderBreaker(p2, internal.BreakerConfig{MaxRequests: 1, Interval: time.Second, Timeout: time.Second, ConsecutiveFailThreshold: 1})
 
 	router := routes.NewPaymentRouter([]*routes.ProviderBreaker{pb1, pb2})
 
-	req := routes.InitiateRequest{Amount: "100", Currency: "NGN", RecipientCode: "R", Reference: "ref", Reason: "test"}
+	req := internal.InitiateRequest{Amount: "100", Currency: "NGN", RecipientCode: "R", Reference: "ref", Reason: "test"}
 	resp, err := router.Route(context.Background(), req)
 	if err != nil {
 		t.Fatalf("expected a provider to succeed, got error: %v", err)

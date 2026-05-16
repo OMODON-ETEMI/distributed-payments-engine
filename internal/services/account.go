@@ -8,7 +8,7 @@ import (
 	"time"
 
 	db "github.com/OMODON-ETEMI/distributed-payments-engine/cmd/database/gen"
-	internal "github.com/OMODON-ETEMI/distributed-payments-engine/cmd/internal/utilities"
+	internal "github.com/OMODON-ETEMI/distributed-payments-engine/internal/utilities"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 )

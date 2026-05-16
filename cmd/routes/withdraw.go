@@ -1,12 +1,14 @@
 package routes
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 
-	"github.com/OMODON-ETEMI/distributed-payments-engine/cmd/internal/services"
-	internal "github.com/OMODON-ETEMI/distributed-payments-engine/cmd/internal/utilities"
+	"github.com/OMODON-ETEMI/distributed-payments-engine/internal/services"
+	internal "github.com/OMODON-ETEMI/distributed-payments-engine/internal/utilities"
 )
 
 // HandleWithdraw debits funds from an account to the system settlement account.
@@ -25,6 +27,18 @@ func (api *ApiConfig) HandleWithdraw(w http.ResponseWriter, r *http.Request) {
 	bodyBytes, err := io.ReadAll(r.Body)
 	if err != nil {
 		internal.RespondWithError(w, 500, fmt.Sprintf("Error reading request body: %v", err))
+		return
+	}
+
+	r.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
+	decoder := json.NewDecoder(r.Body)
+	params := internal.WithdrawParams{}
+	if err := decoder.Decode(&params); err != nil {
+		internal.RespondWithError(w, 400, fmt.Sprintf("Error parsing Json: %v", err))
+		return
+	}
+	if params.IdempotencyKeyID == "" || params.CustomerID == "" || params.DestinationAccountID == "" || params.CurrencyCode == "" || params.Sourcesystem == "" || params.Amount == "" || params.FeeAmount == "" || params.ClientReference == "" || params.ExternalReference == "" {
+		internal.RespondWithError(w, 400, "missing required fields: idempotency_key_id, customer_id, destination_account_id, currency_code, source_system, amount, fee_amount, client_reference, external_reference")
 		return
 	}
 

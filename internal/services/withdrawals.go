@@ -10,8 +10,8 @@ import (
 
 	"github.com/OMODON-ETEMI/distributed-payments-engine/cmd/database"
 	db "github.com/OMODON-ETEMI/distributed-payments-engine/cmd/database/gen"
-	"github.com/OMODON-ETEMI/distributed-payments-engine/cmd/internal/repositry"
-	internal "github.com/OMODON-ETEMI/distributed-payments-engine/cmd/internal/utilities"
+	"github.com/OMODON-ETEMI/distributed-payments-engine/internal/repositry"
+	internal "github.com/OMODON-ETEMI/distributed-payments-engine/internal/utilities"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"

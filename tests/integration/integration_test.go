@@ -10,8 +10,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/OMODON-ETEMI/distributed-payments-engine/src/database"
-	"github.com/OMODON-ETEMI/distributed-payments-engine/src/routes"
+	"github.com/OMODON-ETEMI/distributed-payments-engine/cmd/database"
+	"github.com/OMODON-ETEMI/distributed-payments-engine/cmd/routes"
+	internal "github.com/OMODON-ETEMI/distributed-payments-engine/internal/utilities"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
@@ -57,7 +58,7 @@ func setup(t *testing.T) {
 	}
 
 	mockProvider := routes.NewMockProvider("paystack", 0.0)
-	breakerConfig := routes.BreakerConfig{
+	breakerConfig := internal.BreakerConfig{
 		MaxRequests:              1,
 		Interval:                 5 * time.Second,
 		Timeout:                  10 * time.Second,

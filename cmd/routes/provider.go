@@ -11,7 +11,7 @@ import (
 	"net/http/httptest"
 	"time"
 
-	internal "github.com/OMODON-ETEMI/distributed-payments-engine/cmd/internal/utilities"
+	internal "github.com/OMODON-ETEMI/distributed-payments-engine/internal/utilities"
 	"github.com/google/uuid"
 	"github.com/sony/gobreaker"
 )

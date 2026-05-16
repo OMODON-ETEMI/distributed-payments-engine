@@ -6,7 +6,7 @@ import (
 	"log"
 	"net/http"
 
-	internal "github.com/OMODON-ETEMI/distributed-payments-engine/cmd/internal/utilities"
+	internal "github.com/OMODON-ETEMI/distributed-payments-engine/internal/utilities"
 )
 
 // HandlePaystackWebhook receives and processes webhook events from Paystack.
