@@ -156,10 +156,10 @@ func TestIntegration_FullUserAccountWorkflow(t *testing.T) {
 	}
 	depBody, _ := json.Marshal(depositPayload)
 	w = httptest.NewRecorder()
-	req = httptest.NewRequest("POST", "/v1/account/1/deposite", bytes.NewBuffer(depBody))
-	testAPI.HandleDeposite(w, req)
+	req = httptest.NewRequest("POST", "/v1/account/1/deposit", bytes.NewBuffer(depBody))
+	testAPI.HandleDeposit(w, req)
 	if w.Code != 202 {
-		t.Fatalf("HandleDeposite failed with status %d: %s", w.Code, w.Body.String())
+		t.Fatalf("HandleDeposit failed with status %d: %s", w.Code, w.Body.String())
 	}
 
 	t.Logf("✓ Full workflow: user created %s, account %s, deposit processed", userID, accountID)

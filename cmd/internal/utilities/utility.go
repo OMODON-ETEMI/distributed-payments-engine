@@ -1,4 +1,4 @@
-package routes
+package internal
 
 import (
 	"context"
@@ -11,13 +11,23 @@ import (
 	"math/big"
 	"time"
 
-	db "github.com/OMODON-ETEMI/distributed-payments-engine/src/database/gen"
+	db "github.com/OMODON-ETEMI/distributed-payments-engine/cmd/database/gen"
 	"github.com/confluentinc/confluent-kafka-go/v2/kafka"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/redis/go-redis/v9"
 	"github.com/shopspring/decimal"
 )
+
+// JournalLeg represents a single entry in a balanced transaction
+type JournalLeg struct {
+	AccountID   pgtype.UUID
+	Amount      pgtype.Numeric
+	BalanceKind string
+	Side        string
+	Type        string
+}
 
 type IdemResult struct {
 	ShouldProceed  bool
@@ -25,10 +35,28 @@ type IdemResult struct {
 	StatusCode     int
 }
 
-func (api *ApiConfig) IdemCheck(ctx context.Context, key string, ID string, requestHash string, scope string) (IdemResult, error) {
+type DepositParams struct {
+	Provider             string                 `json:"provider"`
+	IdempotencyKeyID     string                 `json:"idempotency_key_id"`
+	CustomerID           string                 `json:"customer_id"`
+	SourceAccountID      string                 `json:"source_account_id"`
+	DestinationAccountID string                 `json:"destination_account_id"`
+	CurrencyCode         string                 `json:"currency_code"`
+	Sourcesystem         string                 `json:"source_system"`
+	Description          string                 `json:"description"`
+	Amount               string                 `json:"amount"`
+	FeeAmount            string                 `json:"fee_amount"`
+	ClientReference      string                 `json:"client_reference"`
+	ExternalReference    string                 `json:"external_reference"`
+	Memo                 string                 `json:"memo"`
+	Metadata             map[string]interface{} `json:"metadata"`
+}
+
+// IdemCheck verifies if a request has already been processed using Redis and Postgres.
+func IdemCheck(ctx context.Context, queries *db.Queries, rdb *redis.Client, key string, ID string, requestHash string, scope string) (IdemResult, error) {
 	redisKey := fmt.Sprintf("idem:%v:%v", ID, key)
 
-	record, err := api.Db.Queries.GetIdempotencyKeyByScopeAndKey(ctx, db.GetIdempotencyKeyByScopeAndKeyParams{
+	record, err := queries.GetIdempotencyKeyByScopeAndKey(ctx, db.GetIdempotencyKeyByScopeAndKeyParams{
 		IdempotencyKey: key,
 		Scope:          scope,
 	})
@@ -45,7 +73,7 @@ func (api *ApiConfig) IdemCheck(ctx context.Context, key string, ID string, requ
 		}, nil
 	}
 
-	ok, err := api.Redis.SetNX(ctx, redisKey, "processing", 1*time.Minute).Result()
+	ok, err := rdb.SetNX(ctx, redisKey, "processing", 1*time.Minute).Result()
 	if err != nil {
 		return IdemResult{}, err
 	}
@@ -57,8 +85,9 @@ func (api *ApiConfig) IdemCheck(ctx context.Context, key string, ID string, requ
 	return IdemResult{ShouldProceed: true}, nil
 }
 
-func (api *ApiConfig) saveIdem(ctx context.Context, ID string, key string, id pgtype.UUID, response []byte, statusCode int) error {
-	_, err := api.Db.Queries.UpdateIdempotencyKeyResponse(ctx, db.UpdateIdempotencyKeyResponseParams{
+// SaveIdem updates the persistent idempotency record and cleans up the Redis lock.
+func SaveIdem(ctx context.Context, queries *db.Queries, rdb *redis.Client, ID string, key string, id pgtype.UUID, response []byte, statusCode int) error {
+	_, err := queries.UpdateIdempotencyKeyResponse(ctx, db.UpdateIdempotencyKeyResponseParams{
 		ID:           id,
 		ResponseCode: pgtype.Int4{Int32: int32(statusCode), Valid: true},
 		ResponseBody: response,
@@ -67,10 +96,11 @@ func (api *ApiConfig) saveIdem(ctx context.Context, ID string, key string, id pg
 		return err
 	}
 	redisKey := fmt.Sprintf("idem:%v:%v", ID, key)
-	api.Redis.Del(ctx, redisKey)
+	rdb.Del(ctx, redisKey)
 	return nil
 }
 
+// GetOrCreateBalanceProjection ensures a balance projection exists for an account before updating it.
 func GetOrCreateBalanceProjection(ctx context.Context, q *db.Queries, accountID pgtype.UUID, currency, kind string) (db.BalanceProjection, error) {
 	bal, err := q.GetBalanceProjectionForUpdate(ctx, db.GetBalanceProjectionForUpdateParams{
 		AccountID:    accountID,
@@ -148,6 +178,7 @@ func NumericToDecimal(n pgtype.Numeric) (decimal.Decimal, error) {
 	return decimal.NewFromString(fmt.Sprintf("%v", v))
 }
 
+// ValidateLedgerBalance ensures the sum of debits and credits equals zero.
 func ValidateLedgerBalance(legs []JournalLeg) error {
 	sum := decimal.Zero
 
@@ -174,8 +205,13 @@ func ValidateLedgerBalance(legs []JournalLeg) error {
 	return nil
 }
 
-func (api *ApiConfig) ProcessWithdrawalMessage(ctx context.Context, msg *kafka.Message) error {
-	var data WebhookBody
+// ProcessWithdrawalMessage logs an incoming withdrawal event from Kafka into the database.
+func ProcessWithdrawalMessage(ctx context.Context, queries *db.Queries, msg *kafka.Message) error {
+	var data struct {
+		ID       string `json:"id"`
+		Provider string `json:"provider"`
+	}
+
 	if err := json.Unmarshal(msg.Value, &data); err != nil {
 		return err
 	}
@@ -189,7 +225,7 @@ func (api *ApiConfig) ProcessWithdrawalMessage(ctx context.Context, msg *kafka.M
 	}
 
 	// 1. Persist to DB (Idempotency check happens inside your queries)
-	_, err = api.Db.Queries.CreateIncomingWebhook(ctx, db.CreateIncomingWebhookParams{
+	_, err = queries.CreateIncomingWebhook(ctx, db.CreateIncomingWebhookParams{
 		Provider:        data.Provider,
 		EventType:       pgtype.Text{String: *msg.TopicPartition.Topic, Valid: true},
 		ExternalEventID: pgtype.Text{String: data.ID, Valid: true},
@@ -202,8 +238,13 @@ func (api *ApiConfig) ProcessWithdrawalMessage(ctx context.Context, msg *kafka.M
 	return nil
 }
 
-func (api *ApiConfig) ProcessDepositeMessage(ctx context.Context, msg *kafka.Message) error {
-	var data DepositeParams
+// ProcessDepositMessage logs an incoming deposit event from Kafka into the database.
+func ProcessDepositMessage(ctx context.Context, queries *db.Queries, msg *kafka.Message) error {
+	var data struct {
+		Provider          string `json:"provider"`
+		ExternalReference string `json:"external_reference"`
+	}
+
 	if err := json.Unmarshal(msg.Value, &data); err != nil {
 		return err
 	}
@@ -212,12 +253,12 @@ func (api *ApiConfig) ProcessDepositeMessage(ctx context.Context, msg *kafka.Mes
 		"X-Paystack-Request-Id": data.ExternalReference,
 	})
 	if err != nil {
-		log.Printf("Failed to marshal headers for deposite message: %v", err)
+		log.Printf("Failed to marshal headers for deposit message: %v", err)
 		return err
 	}
 
 	// 1. Persist to DB (Idempotency check happens inside your queries)
-	_, err = api.Db.Queries.CreateIncomingWebhook(ctx, db.CreateIncomingWebhookParams{
+	_, err = queries.CreateIncomingWebhook(ctx, db.CreateIncomingWebhookParams{
 		Provider:        data.Provider,
 		EventType:       pgtype.Text{String: *msg.TopicPartition.Topic, Valid: true},
 		ExternalEventID: pgtype.Text{String: data.ExternalReference, Valid: true},

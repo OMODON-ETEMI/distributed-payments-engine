@@ -11,36 +11,14 @@ import (
 	"net/http/httptest"
 	"time"
 
+	internal "github.com/OMODON-ETEMI/distributed-payments-engine/cmd/internal/utilities"
 	"github.com/google/uuid"
 	"github.com/sony/gobreaker"
 )
 
-// ── Interface ────────────────────────────────────────────────────────
-
-type BreakerConfig struct {
-	MaxRequests              uint32        // Max requests allowed when half-open
-	Interval                 time.Duration // Time window for counting failures
-	Timeout                  time.Duration // How long to stay "Open" before trying again
-	ConsecutiveFailThreshold uint32        // Number of failures to trip the breaker
-}
-
-type InitiateRequest struct {
-	Amount        string // in the smallest unit e.g. "500000" kobo
-	Currency      string
-	RecipientCode string // bank account identifier
-	Reference     string // YOUR reference — use transfer_request_id
-	Reason        string
-}
-
-type InitiateResponse struct {
-	ProviderReference string
-	Status            string // "pending" — never "success" at this stage
-	QueuedAt          time.Time
-}
-
 type PaymentProvider interface {
 	Name() string
-	InitiateTransfer(ctx context.Context, req InitiateRequest) (*InitiateResponse, error)
+	InitiateTransfer(ctx context.Context, req internal.InitiateRequest) (*internal.InitiateResponse, error)
 	VerifyWebhookSignature(payload []byte, signature string) bool
 }
 
@@ -58,7 +36,7 @@ func NewMockProvider(name string, failureRate float64) *MockProvider {
 
 func (m *MockProvider) Name() string { return m.name }
 
-func (m *MockProvider) InitiateTransfer(ctx context.Context, req InitiateRequest) (*InitiateResponse, error) {
+func (m *MockProvider) InitiateTransfer(ctx context.Context, req internal.InitiateRequest) (*internal.InitiateResponse, error) {
 	// Simulate network latency
 	time.Sleep(time.Duration(rand.Intn(200)+50) * time.Millisecond)
 
@@ -69,7 +47,7 @@ func (m *MockProvider) InitiateTransfer(ctx context.Context, req InitiateRequest
 
 	// Return a fake provider reference — this is what gets stored
 	// as external_reference on the transfer_request
-	resp := &InitiateResponse{
+	resp := &internal.InitiateResponse{
 		ProviderReference: fmt.Sprintf("MOCK-%s-%s", m.name, uuid.NewString()[:8]),
 		Status:            "pending",
 		QueuedAt:          time.Now(),
@@ -87,27 +65,60 @@ func (m *MockProvider) VerifyWebhookSignature(payload []byte, signature string) 
 	return signature == "mock-signature"
 }
 
-func (m *MockProvider) TransferResponse(req InitiateRequest) {
+func (m *MockProvider) TransferResponse(req internal.InitiateRequest) {
 	// Simulate network latency
 	time.Sleep(2 * time.Second)
-	transfer_id := fmt.Sprintf("MOCK-TRF-%s", uuid.NewString()[:8])
 
-	transferData, _ := json.Marshal(&WebhookTransferData{
-		ID:        transfer_id,
-		Reference: req.Reference,
-		Provider:  "paystack",
-		Status:    "success",
-		BankCode:  "044",
-		FullName:  "Alexis Sanchez",
-		Amount:    "5000",
+	webhookTransferID := fmt.Sprintf("MOCK-WEBHOOK-TRF-%s", uuid.NewString()[:8]) // Unique ID for the webhook event itself
+
+	var webhookStatus string
+	var webhookEvent string
+	var failureReason string
+
+	if rand.Float64() < m.failureRate {
+		// Simulate failure
+		failureType := rand.Intn(2) // 0 for failed, 1 for reversed
+		if failureType == 0 {
+			webhookStatus = "failed"
+			webhookEvent = "transfer.failed"
+			failureReason = "simulated_failure"
+		} else {
+			webhookStatus = "reversed"
+			webhookEvent = "transfer.reversed"
+			failureReason = "simulated_reversal"
+		}
+	} else {
+		// Simulate success
+		webhookStatus = "success"
+		webhookEvent = "transfer.success"
+	}
+
+	transferData, err := json.Marshal(&internal.WebhookTransferData{
+		ID:            webhookTransferID, // This is the webhook's own ID for the transfer event
+		Reference:     req.Reference,     // This is the original transfer_request_id from our system
+		Provider:      "paystack",
+		Status:        webhookStatus,
+		BankCode:      "044",
+		FullName:      "Alexis Sanchez", // Hardcoded for mock, could be dynamic
+		Amount:        req.Amount,
+		Currency:      req.Currency,
+		FailureReason: failureReason,
 	})
+	if err != nil {
+		log.Printf("Error marshaling WebhookTransferData: %v", err)
+		return
+	}
 
-	payload, _ := json.Marshal(&WebhookBody{
-		Event: "transfer.success",
+	payload, err := json.Marshal(&internal.WebhookBody{
+		Event: webhookEvent,
 		Type:  "withdrawal.webhook",
-		ID:    transfer_id,
+		ID:    webhookTransferID, // Webhook's own ID
 		Data:  transferData,
 	})
+	if err != nil {
+		log.Printf("Error marshaling WebhookBody: %v", err)
+		return
+	}
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
@@ -124,7 +135,7 @@ func (m *MockProvider) TransferResponse(req InitiateRequest) {
 		}
 
 		m.Api.HandlePaystackWebhook(w, r)
-		log.Printf("Internal webhook simulation finished with data: %+v", w)
+		slog.Info("Internal webhook simulation finished", "status", webhookStatus, "event", webhookEvent, "response", w.Body.String())
 	}()
 }
 
@@ -135,7 +146,7 @@ type ProviderBreaker struct {
 	breaker  *gobreaker.CircuitBreaker
 }
 
-func NewProviderBreaker(p PaymentProvider, cfg BreakerConfig) *ProviderBreaker {
+func NewProviderBreaker(p PaymentProvider, cfg internal.BreakerConfig) *ProviderBreaker {
 	settings := gobreaker.Settings{
 		Name:        p.Name(),
 		MaxRequests: cfg.MaxRequests,
@@ -158,14 +169,14 @@ func NewProviderBreaker(p PaymentProvider, cfg BreakerConfig) *ProviderBreaker {
 	}
 }
 
-func (pb *ProviderBreaker) InitiateTransfer(ctx context.Context, req InitiateRequest) (*InitiateResponse, error) {
+func (pb *ProviderBreaker) InitiateTransfer(ctx context.Context, req internal.InitiateRequest) (*internal.InitiateResponse, error) {
 	result, err := pb.breaker.Execute(func() (interface{}, error) {
 		return pb.Provider.InitiateTransfer(ctx, req)
 	})
 	if err != nil {
 		return nil, err
 	}
-	return result.(*InitiateResponse), nil
+	return result.(*internal.InitiateResponse), nil
 }
 
 // ── Router ───────────────────────────────────────────────────────────
@@ -178,7 +189,7 @@ func NewPaymentRouter(providers []*ProviderBreaker) *PaymentRouter {
 	return &PaymentRouter{providers: providers}
 }
 
-func (r *PaymentRouter) Route(ctx context.Context, req InitiateRequest) (*InitiateResponse, error) {
+func (r *PaymentRouter) Route(ctx context.Context, req internal.InitiateRequest) (*internal.InitiateResponse, error) {
 	var lastErr error
 	for _, pb := range r.providers {
 		resp, err := pb.InitiateTransfer(ctx, req)

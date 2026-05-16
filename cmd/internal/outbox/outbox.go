@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"log"
 
-	db "github.com/OMODON-ETEMI/distributed-payments-engine/src/database/gen"
-	"github.com/OMODON-ETEMI/distributed-payments-engine/src/routes"
+	db "github.com/OMODON-ETEMI/distributed-payments-engine/cmd/database/gen"
+	"github.com/OMODON-ETEMI/distributed-payments-engine/cmd/routes"
 	"github.com/jackc/pgx/v5/pgtype"
 )
 

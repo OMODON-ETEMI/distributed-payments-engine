@@ -110,13 +110,13 @@ func TestE2E_CompletePaymentFlow(t *testing.T) {
 		"external_reference":     uuid.NewString(),
 	}
 	depositBody, _ := json.Marshal(depositPayload)
-	resp, err = client.Post(baseURL+"/v1/account/deposite", "application/json", bytes.NewBuffer(depositBody))
+	resp, err = client.Post(baseURL+"/v1/account/deposit", "application/json", bytes.NewBuffer(depositBody))
 	if err != nil {
 		t.Fatalf("Deposit request failed: %v", err)
 	}
 	if resp.StatusCode != 202 {
 		body, _ := io.ReadAll(resp.Body)
-		t.Fatalf("HandleDeposite failed: %d - %s", resp.StatusCode, string(body))
+		t.Fatalf("HandleDeposit failed: %d - %s", resp.StatusCode, string(body))
 	}
 	resp.Body.Close()
 	t.Logf("✓ Deposit processed: 50000 NGN")
@@ -201,7 +201,7 @@ func TestE2E_IdempotencyAcrossRetries(t *testing.T) {
 	depositBody, _ := json.Marshal(depositPayload)
 
 	// First request
-	resp, err := client.Post(baseURL+"/v1/account/deposite", "application/json", bytes.NewBuffer(depositBody))
+	resp, err := client.Post(baseURL+"/v1/account/deposit", "application/json", bytes.NewBuffer(depositBody))
 	if err != nil {
 		t.Fatalf("First deposit request failed: %v", err)
 	}
@@ -220,7 +220,7 @@ func TestE2E_IdempotencyAcrossRetries(t *testing.T) {
 
 	// Retry with same idempotency key
 	depositBody2, _ := json.Marshal(depositPayload)
-	resp, err = client.Post(baseURL+"/v1/account/deposite", "application/json", bytes.NewBuffer(depositBody2))
+	resp, err = client.Post(baseURL+"/v1/account/deposit", "application/json", bytes.NewBuffer(depositBody2))
 	if err != nil {
 		t.Logf("Retry request failed: %v", err)
 	} else {
@@ -558,7 +558,7 @@ func depositToAccountE2E(t *testing.T, client *http.Client, userID string, acctI
 		"external_reference":     uuid.NewString(),
 	}
 	depositBody, _ := json.Marshal(depositPayload)
-	resp, err := client.Post(baseURL+"/v1/account/deposite", "application/json", bytes.NewBuffer(depositBody))
+	resp, err := client.Post(baseURL+"/v1/account/deposit", "application/json", bytes.NewBuffer(depositBody))
 	if err != nil {
 		t.Fatalf("depositToAccountE2E request failed: %v", err)
 	}

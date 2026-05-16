@@ -1,7 +1,7 @@
 package routes
 
 import (
-	"github.com/OMODON-ETEMI/distributed-payments-engine/src/database"
+	"github.com/OMODON-ETEMI/distributed-payments-engine/cmd/database"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 )

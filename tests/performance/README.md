@@ -1,53 +1,186 @@
 # Performance Tests
 
-Load and performance testing for the distributed payments engine. These tests validate system behavior under high concurrency, measure latency percentiles, and identify bottlenecks.
+Performance testing suite that validates the distributed payment engine under realistic fintech load conditions.
 
-## Prerequisites
+## Test Philosophy
 
-- Integration tests passing
-- PostgreSQL 16+ with sufficient resources (4+ CPU, 8GB+ RAM)
-- Redis 7+ with sufficient resources
-- Go 1.25+
-- Load testing tools: `vegeta`, `k6`, or `Apache JMeter` (optional)
+Rather than synthetic benchmarks, these tests simulate **real-world fintech scenarios**—the kind that major payment providers (Flutterwave, Wise, Stripe) experience daily.
 
-## Performance Test Tools
+## K-16 Gold Standard Test
 
-### Built-in Go Testing
+**What it tests:** Can your system handle a high-concurrency day at a tier-1 African bank?
 
-```bash
-# Run benchmarks
-go test -bench=. -benchmem ./tests/performance/...
+### Test Scenario
+- **16 concurrent operations** (K-16 = Kubernetes 16 cores analogy)
+- **5 accounts** (mix of sources and destinations)
+- **1,600 total transactions** (16 goroutines × 100 ops each)
+- **Mixed workload:** 50% transfers, 30% deposits, 20% withdrawals
+- **Duration:** ~30 seconds sustained load
 
-# Run with CPU profiling
-go test -bench=. -cpuprofile=cpu.prof ./tests/performance/...
-go tool pprof cpu.prof
+### SLA Targets (Fintech Gold Standard)
 
-# Run with memory profiling
-go test -bench=. -memprofile=mem.prof ./tests/performance/...
-go tool pprof mem.prof
+These targets align with what payment companies actually deploy:
+
+| Metric | Target | Why This Matters |
+|--------|--------|------------------|
+| **P50 Latency** | ≤ 100ms | Median user experience |
+| **P95 Latency** | ≤ 200ms | 95% of users see this speed |
+| **P99 Latency** | ≤ 400ms | Only 1 in 100 users hit slowness |
+| **Error Rate** | ≤ 0.1% | 99.9% success (financial reliability) |
+| **Throughput** | ≥ 150 req/sec | Handles traffic spikes |
+
+### Metrics Collected
+
+```
+📊 LATENCY METRICS
+  - P50, P95, P99, MAX, MIN, AVG (in milliseconds)
+
+⚡ THROUGHPUT METRICS  
+  - Total requests, Req/sec, Test duration
+
+✅ RELIABILITY METRICS
+  - Successful vs failed transactions
+  - Success rate %
+  - Idempotency retry hits
+
+🔐 MONEY INTEGRITY
+  - All account balances verified
+  - Ledger double-entry consistency
 ```
 
-### Vegeta Load Testing
+## How to Run
 
-Install:
+### Prerequisites
+- Server running: `go run src/main.go` or `docker-compose up payment_service_engine`
+- PostgreSQL, Redis, Kafka all healthy
+- `API_BASE_URL` environment variable set (defaults to `http://localhost:8000`)
+
+### Run K-16 Performance Test
+
 ```bash
-go install github.com/tsenart/vegeta@latest
+# All performance tests
+go test -v -timeout 120s ./tests/performance/...
+
+# K-16 specifically
+go test -v -run TestPerformance_K16_HighConcurrency -timeout 120s ./tests/performance/...
+
+# With detailed output
+go test -v -count=1 ./tests/performance/... 2>&1 | tee perf_results.log
 ```
 
-Example attack:
-```bash
-echo "POST http://localhost:8080/v1/create/user" | vegeta attack -duration=30s -rate=100/s | vegeta report
+### Expected Output
+
+When the test completes, you'll see a formatted report with:
+
+```
+╔════════════════════════════════════════════════════════════════╗
+║          PERFORMANCE TEST REPORT (K-16 Gold Standard)          ║
+╚════════════════════════════════════════════════════════════════╝
+
+📊 LATENCY METRICS (milliseconds)
+┌────────────────────────────────────────────┐
+│ P50 (Median):        65.23 ms              │  ✅ Target: ≤ 100ms
+│ P95 (Good):         142.50 ms              │  ✅ Target: ≤ 200ms
+│ P99 (Acceptable):   285.10 ms              │  ✅ Target: ≤ 400ms
+│ MAX (Outlier):      412.65 ms              │
+│ MIN (Best):           8.32 ms              │
+│ AVG (Mean):         128.45 ms              │
+└────────────────────────────────────────────┘
+
+⚡ THROUGHPUT METRICS
+┌────────────────────────────────────────────┐
+│ Total Requests:    1600                    │
+│ Req/sec:            187.42                 │  ✅ Target: ≥ 150req/sec
+│ Duration:            8.53 seconds          │
+└────────────────────────────────────────────┘
+
+✅ RELIABILITY METRICS
+┌────────────────────────────────────────────┐
+│ Successful Txns:   1598 (99.88%)           │  ✅ Target: ≥ 99.9%
+│ Failed Txns:          2 (0.12%)            │
+│ Idempotency Hits:     0                    │
+└────────────────────────────────────────────┘
+
+🎯 SLA COMPLIANCE (vs Fintech Gold Standard)
+┌────────────────────────────────────────────┐
+│ P50 ≤ 100ms:       ✅ (65.23 ms)           PASS
+│ P95 ≤ 200ms:       ✅ (142.50 ms)          PASS
+│ P99 ≤ 400ms:       ✅ (285.10 ms)          PASS
+│ Error Rate ≤ 0.1%  ✅ (0.12%)              PASS
+│ Throughput ≥ 150req/s: ✅ (187.42 req/s)  PASS
+└────────────────────────────────────────────┘
+
+✅ RESULT: ALL SLAs MET - Production Ready
 ```
 
-### K6 Load Testing
+## Performance Anti-Patterns (Debugging)
 
-Install:
-```bash
-# macOS
-brew install k6
+If your results show:
 
-# Linux
-sudo apt-get install k6
+### ❌ P99 > 400ms
+**Cause:** Database lock contention or Kafka lag spike
+**Fix:**
+- Check if concurrent transfers hit the same account (OCC contention)
+- Monitor `KAFKA_CONSUMER_LAG` during test
+- Verify connection pool isn't exhausted: `SELECT count(*) FROM pg_stat_activity;`
+
+### ❌ Error Rate > 0.1%
+**Cause:** Connection pool exhaustion, Kafka partition full, or balance insufficient
+**Fix:**
+- Increase `DB_CONNECTION_POOL_SIZE` in .env
+- Check Kafka broker logs: `docker logs broker`
+- Ensure initial deposits are sufficient (test uses 1M per account)
+
+### ❌ Throughput < 150 req/sec
+**Cause:** Serialized bottleneck or single Kafka partition
+**Fix:**
+- Increase Kafka partition count for `deposits`, `transfers`, `withdrawals` topics
+- Enable statement caching in `pgx` connection pool
+- Profile CPU: `go test -cpuprofile=cpu.prof`
+
+## Real-World Context
+
+**Why K-16?**
+- Represents peak traffic hour at a mid-tier African bank
+- 16 concurrent users is realistic for high-concurrency scenarios
+- Tests both optimistic concurrency control AND Kafka throughput
+
+**Why mixed workload?**
+- Real systems don't do just transfers—deposits, withdrawals, fees all happen
+- Tests queue depth under realistic strain
+
+**Why money integrity check?**
+- In fintech, a 1% success rate with correct balances is **worthless**
+- If 1,600 txns go through but ledger is off, the entire system failed
+- This validates: **financial correctness ≥ performance**
+
+## Integration with CI/CD
+
+Add to your GitHub Actions / GitLab CI:
+
+```yaml
+performance-test:
+  script:
+    - docker-compose up -d
+    - sleep 10  # Wait for services
+    - go test -v -timeout 120s ./tests/performance/...
+  only:
+    - branches: [main]
+```
+
+Fail the build if P99 > 500ms (adjust based on your SLA).
+
+## Next Steps
+
+After passing K-16:
+1. **Stress Test (K-64):** 64 concurrent operations, 15 minutes sustained
+2. **Chaos Injection:** Kill services mid-test (Redis down, Kafka broker crash)
+3. **Load Ramp:** Gradually increase concurrency from 1 to 100, measure inflection point
+4. **Cost Analysis:** Measure infrastructure cost per 1M transactions
+
+---
+
+**Note:** This test runs against a **real running server** with **real database & Kafka**. It's not a unit test—it proves your system works end-to-end under production-like conditions.
 
 # Windows - download from https://github.com/grafana/k6/releases
 ```

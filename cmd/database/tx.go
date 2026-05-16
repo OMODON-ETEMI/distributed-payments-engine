@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	db "github.com/OMODON-ETEMI/distributed-payments-engine/src/database/gen"
+	db "github.com/OMODON-ETEMI/distributed-payments-engine/cmd/database/gen"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )

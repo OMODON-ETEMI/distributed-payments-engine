@@ -15,7 +15,7 @@ const docTemplate = `{
     "host": "{{.Host}}",
     "basePath": "{{.BasePath}}",
     "paths": {
-        "/account/deposite": {
+        "/account/deposit": {
             "post": {
                 "description": "Credits funds to an account from the system settlement account. Supports idempotent deposits.",
                 "consumes": [
@@ -35,7 +35,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/routes.DepositeParams"
+                            "$ref": "#/definitions/routes.DepositParams"
                         }
                     }
                 ],

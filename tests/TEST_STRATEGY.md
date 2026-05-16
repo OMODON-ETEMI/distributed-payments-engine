@@ -49,31 +49,38 @@ Complete testing framework for the distributed payments engine. This document ou
 - **Run**: `go test -v -tags=e2e ./tests/e2e/...`
 - **Coverage Target**: Business flows, payment scenarios
 
-### 4. Performance Tests (Varies)
+### 4. Performance Tests (K-16 Gold Standard)
 - **Location**: `tests/performance/`
-- **Focus**: Throughput, latency, stress testing
-- **Database**: Real PostgreSQL
-- **Concurrency**: 50-200 goroutines
-- **Speed**: 30s-5m per test
-- **Run**: `go test -bench=. ./tests/performance/...`
-- **Targets**: Latency p99, throughput, memory
+- **Focus**: Real-world fintech load (16 concurrent operations)
+- **Test Name**: `TestPerformance_K16_HighConcurrency`
+- **Database**: Real PostgreSQL, Redis, Kafka
+- **Concurrency**: 16 goroutines, 1,600 transactions
+- **Workload**: 50% transfers, 30% deposits, 20% withdrawals
+- **Speed**: ~30 seconds sustained load
+- **Run**: `go test -v -timeout 120s ./tests/performance/...`
+- **SLA Targets**:
+  - P50 latency: ≤ 100ms
+  - P95 latency: ≤ 200ms
+  - P99 latency: ≤ 400ms
+  - Error rate: ≤ 0.1% (99.9% success)
+  - Throughput: ≥ 150 req/sec
 
 ## Quick Start
 
 ### Run All Tests
 
 ```bash
-# Unit tests (always fast)
+# Unit tests (always fast, ~2s)
 go test -v ./tests/unit/...
 
-# Integration tests (requires DB + Redis)
+# Integration tests (requires DB + Redis, ~6s)
 go test -v ./tests/integration/...
 
-# E2E tests (requires staging environment)
+# E2E tests (requires server running + Kafka, ~30s)
 go test -v -tags=e2e ./tests/e2e/...
 
-# Performance tests (requires resources)
-go test -bench=. ./tests/performance/...
+# Performance tests (K-16 Gold Standard, ~30s)
+go test -v -timeout 120s ./tests/performance/...
 
 # All together
 go test -v ./...
@@ -83,13 +90,16 @@ go test -v ./...
 
 ```bash
 # All fast tests (unit + integration)
-go test -v -short ./tests/...
+go test -v ./tests/unit/... ./tests/integration/...
+
+# K-16 performance specifically
+go test -v -run TestPerformance_K16_HighConcurrency -timeout 120s ./tests/performance/...
+
+# E2E only
+go test -v -tags=e2e ./tests/e2e/...
 
 # Only integration
-go test -v -run Integration ./tests/integration/...
-
-# Only performance
-go test -v -bench=. -run=^$ ./tests/performance/...
+go test -v ./tests/integration/...
 ```
 
 ### With Coverage

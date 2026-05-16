@@ -8,12 +8,13 @@ import (
 	"os"
 	"time"
 
+	"github.com/OMODON-ETEMI/distributed-payments-engine/cmd/database"
+	"github.com/OMODON-ETEMI/distributed-payments-engine/cmd/internal/messaging/consumer"
+	"github.com/OMODON-ETEMI/distributed-payments-engine/cmd/internal/messaging/producer"
+	internal "github.com/OMODON-ETEMI/distributed-payments-engine/cmd/internal/utilities"
+	"github.com/OMODON-ETEMI/distributed-payments-engine/cmd/internal/worker"
+	"github.com/OMODON-ETEMI/distributed-payments-engine/cmd/routes"
 	_ "github.com/OMODON-ETEMI/distributed-payments-engine/docs"
-	"github.com/OMODON-ETEMI/distributed-payments-engine/src/database"
-	"github.com/OMODON-ETEMI/distributed-payments-engine/src/internal/messaging/consumer"
-	"github.com/OMODON-ETEMI/distributed-payments-engine/src/internal/messaging/producer"
-	"github.com/OMODON-ETEMI/distributed-payments-engine/src/internal/worker"
-	"github.com/OMODON-ETEMI/distributed-payments-engine/src/routes"
 	"github.com/confluentinc/confluent-kafka-go/v2/kafka"
 	"github.com/go-chi/chi"
 	"github.com/go-chi/cors"
@@ -101,7 +102,7 @@ func main() {
 	mockProvider := routes.NewMockProvider("paystack", 0.3) // 30% failure rate for testing
 
 	// Configure the Circuit Breaker for the MockProvider
-	breakerConfig := routes.BreakerConfig{
+	breakerConfig := internal.BreakerConfig{
 		MaxRequests:              1,
 		Interval:                 5 * time.Second,
 		Timeout:                  10 * time.Second,
@@ -119,7 +120,7 @@ func main() {
 
 	// Start Kafka Background Worker
 	go worker.StartWithdrawalKafkWorker(ctx, api, withdrawalConsumer)
-	go worker.StartdepositKafkWorker(ctx, api, depositConsumer)
+	go worker.StartDepositKafkaWorker(ctx, api, depositConsumer)
 	go worker.StartWebhookWorker(ctx, api)
 
 	// Link the provider back to the API config for webhook simulation
@@ -142,7 +143,6 @@ func main() {
 
 	v1Router := chi.NewRouter()
 	v1Router.Get("/healthz", routes.HandleHealthCheck)
-	v1Router.Get("/err", routes.HandleError)
 	v1Router.Post("/create/user", api.HandleCreateUser)
 	v1Router.Get("/user/{id}", api.HandleGetUserById)
 	v1Router.Post("/list/users", api.HandleListCustomers)
@@ -150,7 +150,7 @@ func main() {
 	v1Router.Get("/account/number/{number}", api.HandleGetAccountByAccountNumber)
 	v1Router.Post("/list/accounts/customer", api.HandleListAccountByCustomer)
 	v1Router.Get("/account/{id}/balances", api.HandleGetBalancesForAccount)
-	v1Router.Post("/account/deposite", api.HandleDeposite)
+	v1Router.Post("/account/deposit", api.HandleDeposit)
 	v1Router.Post("/account/withdraw", api.HandleWithdraw)
 	v1Router.Post("/account/transfer", api.HandleCreateTransfer)
 	v1Router.Get("/transfer/{id}", api.GetTransferbyID)

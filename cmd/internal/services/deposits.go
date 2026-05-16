@@ -1,104 +1,36 @@
-package routes
+package services
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"log"
-	"net/http"
 	"time"
 
-	db "github.com/OMODON-ETEMI/distributed-payments-engine/src/database/gen"
+	"github.com/OMODON-ETEMI/distributed-payments-engine/cmd/database"
+	db "github.com/OMODON-ETEMI/distributed-payments-engine/cmd/database/gen"
+	internal "github.com/OMODON-ETEMI/distributed-payments-engine/cmd/internal/utilities"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/redis/go-redis/v9"
 	"github.com/shopspring/decimal"
 )
 
-type DepositeParams struct {
-	Provider             string                 `json:"provider"`
-	IdempotencyKeyID     string                 `json:"idempotency_key_id"`
-	CustomerID           string                 `json:"customer_id"`
-	SourceAccountID      string                 `json:"source_account_id"`
-	DestinationAccountID string                 `json:"destination_account_id"`
-	CurrencyCode         string                 `json:"currency_code"`
-	Sourcesystem         string                 `json:"source_system"`
-	Description          string                 `json:"description"`
-	Amount               string                 `json:"amount"`
-	FeeAmount            string                 `json:"fee_amount"`
-	ClientReference      string                 `json:"client_reference"`
-	ExternalReference    string                 `json:"external_reference"`
-	Memo                 string                 `json:"memo"`
-	Metadata             map[string]interface{} `json:"metadata"`
-}
-
-// HandleDeposite credits funds to an account from the system settlement account.
-// @Summary Deposit funds to account
-// @Description Credits funds to an account from the system settlement account. Supports idempotent deposits.
-// @Tags Deposits
-// @Accept json
-// @Produce json
-// @Param body body DepositeParams true "Deposit Details"
-// @Success 202 {object} map[string]interface{}{"success":true,"status":"pending","reference":"DEP-{idempotency_key_id}","message":"Transfer is being processed. You will be notified via webhook."}
-// @Failure 400 {object} errResponse
-// @Failure 404 {object} errResponse
-// @Failure 500 {object} errResponse
-// @Router /account/deposite [post]
-func (api *ApiConfig) HandleDeposite(w http.ResponseWriter, r *http.Request) {
-	bodyBytes, err := io.ReadAll(r.Body)
-	if err != nil {
-		respondWithError(w, 500, fmt.Sprintf("Error reading request body: %v", err))
-		return
-	}
-
-	r.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
-	decoder := json.NewDecoder(r.Body)
-	params := DepositeParams{}
-	if err := decoder.Decode(&params); err != nil {
-		respondWithError(w, 400, fmt.Sprintf("Error parsing Json: %v", err))
-		return
-	}
-	if params.Provider == "" || params.IdempotencyKeyID == "" || params.CustomerID == "" || params.DestinationAccountID == "" || params.CurrencyCode == "" || params.Sourcesystem == "" || params.Amount == "" || params.FeeAmount == "" || params.ClientReference == "" || params.ExternalReference == "" {
-		respondWithError(w, 400, "missing required fields: provider, idempotency_key_id, customer_id, destination_account_id, currency_code, source_system, amount, fee_amount, client_reference, external_reference")
-		return
-	}
-	if params.Metadata == nil {
-		params.Metadata = make(map[string]interface{})
-	}
-	payload, err := json.Marshal(params)
-	if err != nil {
-		respondWithError(w, 500, fmt.Sprintf("Error parsing Json: %v", err))
-		return
-	}
-	topic := "deposite.transfer"
-	if err := api.Kafka_producer.SendMessage(topic, params.CustomerID, payload); err != nil {
-		log.Printf("Kafka Failure: %v", err)
-		respondWithError(w, 500, "internal storage error")
-		return
-	}
-	respondeWithJson(w, 202, map[string]interface{}{
-		"success":   true,
-		"status":    "pending",
-		"reference": fmt.Sprintf("DEP-%s", params.IdempotencyKeyID),
-		"message":   "Transfer is being processed. You will be notified via webhook.",
-	})
-}
-
-func DepositeLogic(ctx context.Context, payload []byte, api *ApiConfig) (*TransferResponse, error) {
-	var params DepositeParams
+func DepositLogic(ctx context.Context, payload []byte, d *database.Db, rdb *redis.Client) (*internal.TransferResponse, error) {
+	var params internal.DepositParams
 	if err := json.Unmarshal(payload, &params); err != nil {
 		log.Printf("Error parsing payload: %v", err)
 		return nil, err
 	}
-	requestHash := HashRequest(payload)
-	customerID, err := StringtoPgUuid(params.CustomerID)
+	requestHash := internal.HashRequest(payload)
+	customerID, err := internal.StringtoPgUuid(params.CustomerID)
 	if err != nil {
+		log.Printf("Error parsing customer ID: %v", err)
 		return nil, fmt.Errorf("Error parsing customer ID: %v", err)
 	}
-	customer, err := api.Db.Queries.GetCustomerByID(ctx, customerID)
+	customer, err := d.Queries.GetCustomerByID(ctx, customerID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, fmt.Errorf("customer not found")
@@ -108,8 +40,14 @@ func DepositeLogic(ctx context.Context, payload []byte, api *ApiConfig) (*Transf
 	if customer.Status != "active" {
 		return nil, fmt.Errorf("customer is not active")
 	}
-	amount, err := StringToNumeric(params.Amount)
-	feeAmount, err := StringToNumeric(params.FeeAmount)
+	amount, err := internal.StringToNumeric(params.Amount)
+	if err != nil {
+		return nil, fmt.Errorf("Error parsing amount: %v", err)
+	}
+	feeAmount, err := internal.StringToNumeric(params.FeeAmount)
+	if err != nil {
+		return nil, fmt.Errorf("Error parsing Fee amount: %v", err)
+	}
 	ClientReference := pgtype.Text{String: params.ClientReference, Valid: params.ClientReference != ""}
 	ExternalReference := pgtype.Text{String: params.ExternalReference, Valid: params.ExternalReference != ""}
 	metaBytes := []byte("null")
@@ -121,12 +59,12 @@ func DepositeLogic(ctx context.Context, payload []byte, api *ApiConfig) (*Transf
 		metaBytes = b
 	}
 	memo := pgtype.Text{String: params.Memo, Valid: params.Memo != ""}
-	check, err := api.IdemCheck(ctx, params.IdempotencyKeyID, params.CustomerID, requestHash, "deposit_create")
+	check, err := internal.IdemCheck(ctx, d.Queries, rdb, params.IdempotencyKeyID, params.CustomerID, requestHash, "deposit_create")
 	if err != nil {
 		return nil, fmt.Errorf("Error checking idempotency key: %v", err)
 	}
 	if !check.ShouldProceed {
-		var cachedData TransferResponse
+		var cachedData internal.TransferResponse
 		err := json.Unmarshal(check.CachedResponse, &cachedData)
 		if err != nil {
 			fmt.Printf("Failed to unmarshal cached response: %v", err)
@@ -134,7 +72,7 @@ func DepositeLogic(ctx context.Context, payload []byte, api *ApiConfig) (*Transf
 		}
 		return &cachedData, nil
 	}
-	idempkey, err := api.Db.Queries.CreateIdempotencyKey(ctx, db.CreateIdempotencyKeyParams{
+	idempkey, err := d.Queries.CreateIdempotencyKey(ctx, db.CreateIdempotencyKeyParams{
 		IdempotencyKey: params.IdempotencyKeyID,
 		Scope:          "deposit_create",
 		RequestHash:    []byte(requestHash),
@@ -150,15 +88,13 @@ func DepositeLogic(ctx context.Context, payload []byte, api *ApiConfig) (*Transf
 	var trf db.TransferRequest
 	var jtx db.JournalTransaction
 	var payloadBytes []byte
-	err = api.Db.ExecTx(ctx, func(q *db.Queries) error {
-		// Optimization: Fetch FOR UPDATE directly inside the TX using the reference/ID
-		// This saves two round trips to the DB.
+	err = d.ExecTx(ctx, func(q *db.Queries) error {
 		systemSettleAcct, err := q.GetAccountByExternalRef(ctx, "system_settlement_ngn")
 		if err != nil {
 			return fmt.Errorf("Error looking up system settlement account: %v", err)
 		}
 
-		destUuid, _ := StringtoPgUuid(params.DestinationAccountID)
+		destUuid, _ := internal.StringtoPgUuid(params.DestinationAccountID)
 		destAcct, err := q.GetAccountByIDForUpdate(ctx, destUuid)
 		if err != nil {
 			return fmt.Errorf("Error looking up destination account: %v", err)
@@ -203,11 +139,11 @@ func DepositeLogic(ctx context.Context, payload []byte, api *ApiConfig) (*Transf
 		if err != nil {
 			return fmt.Errorf("Error creating journal transaction: %v", err)
 		}
-		legs := []JournalLeg{
+		legs := []internal.JournalLeg{
 			{AccountID: systemSettleAcct.ID, Amount: amount, Side: "debit"},
 			{AccountID: destAcct.ID, Amount: amount, Side: "credit"},
 		}
-		err = ValidateLedgerBalance(legs)
+		err = internal.ValidateLedgerBalance(legs)
 		if err != nil {
 			return err
 		}
@@ -235,7 +171,7 @@ func DepositeLogic(ctx context.Context, payload []byte, api *ApiConfig) (*Transf
 		if err != nil {
 			return fmt.Errorf("Error Marking journal transaction: %v", err)
 		}
-		balance, err := GetOrCreateBalanceProjection(
+		balance, err := internal.GetOrCreateBalanceProjection(
 			ctx, q,
 			destAcct.ID,
 			params.CurrencyCode,
@@ -244,16 +180,16 @@ func DepositeLogic(ctx context.Context, payload []byte, api *ApiConfig) (*Transf
 		if err != nil {
 			return fmt.Errorf("getting balance: %w", err)
 		}
-		destLedger, _ := decimal.NewFromString(NumericToString(balance.LedgerBalance))
-		destHeld, _ := decimal.NewFromString(NumericToString(balance.HeldBalance))
-		amt, _ := decimal.NewFromString(NumericToString(amount))
+		destLedger, _ := decimal.NewFromString(internal.NumericToString(balance.LedgerBalance))
+		destHeld, _ := decimal.NewFromString(internal.NumericToString(balance.HeldBalance))
+		amt, _ := decimal.NewFromString(internal.NumericToString(amount))
 		newDestLedger := destLedger.Add(amt)
 		newDestHeld := destHeld
 		newDestAvail := newDestLedger.Sub(newDestHeld)
 
-		newDestLedgerNum, err := StringToNumeric(newDestLedger.String())
-		newDestAvailNum, err := StringToNumeric(newDestAvail.String())
-		newDestHeldNum, err := StringToNumeric(newDestHeld.String())
+		newDestLedgerNum, err := internal.StringToNumeric(newDestLedger.String())
+		newDestAvailNum, err := internal.StringToNumeric(newDestAvail.String())
+		newDestHeldNum, err := internal.StringToNumeric(newDestHeld.String())
 		err = q.UpsertBalanceProjectionWithExpectedVersion(ctx, db.UpsertBalanceProjectionWithExpectedVersionParams{
 			AccountID:        destAcct.ID,
 			CurrencyCode:     params.CurrencyCode,
@@ -275,7 +211,7 @@ func DepositeLogic(ctx context.Context, payload []byte, api *ApiConfig) (*Transf
 		if err != nil {
 			return fmt.Errorf("Error Updating the transfer reuest status : %w", err)
 		}
-		transferPayload := ToTransferResponse(trf, &jtx)
+		transferPayload := internal.ToTransferResponse(trf, &jtx)
 		payloadBytes, err = json.Marshal(transferPayload)
 		if err != nil {
 			return fmt.Errorf("failed to marshal outbox payload: %w", err)
@@ -303,7 +239,7 @@ func DepositeLogic(ctx context.Context, payload []byte, api *ApiConfig) (*Transf
 		if err != nil {
 			return fmt.Errorf("failed to create outbox event: %w", err)
 		}
-		if err := api.saveIdem(ctx, params.CustomerID, params.IdempotencyKeyID, idempkey.ID, payloadBytes, 201); err != nil {
+		if err := internal.SaveIdem(ctx, d.Queries, rdb, params.CustomerID, params.IdempotencyKeyID, idempkey.ID, payloadBytes, 201); err != nil {
 			return fmt.Errorf("error saving idempotency key: %v", err)
 		}
 		return nil
@@ -311,7 +247,6 @@ func DepositeLogic(ctx context.Context, payload []byte, api *ApiConfig) (*Transf
 	if err != nil {
 		return nil, fmt.Errorf("transfer failed: %v", err)
 	}
-	response := ToTransferResponse(trf, &jtx)
+	response := internal.ToTransferResponse(trf, &jtx)
 	return &response, nil
-
 }

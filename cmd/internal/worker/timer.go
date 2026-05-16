@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/OMODON-ETEMI/distributed-payments-engine/src/routes"
+	"github.com/OMODON-ETEMI/distributed-payments-engine/cmd/routes"
 )
 
 func StartOutboxEventReaper(ctx context.Context, api *routes.ApiConfig) {

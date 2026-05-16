@@ -6,10 +6,12 @@ import (
 	"fmt"
 	"log"
 
-	db "github.com/OMODON-ETEMI/distributed-payments-engine/src/database/gen"
-	"github.com/OMODON-ETEMI/distributed-payments-engine/src/internal/messaging/consumer"
-	"github.com/OMODON-ETEMI/distributed-payments-engine/src/internal/outbox"
-	"github.com/OMODON-ETEMI/distributed-payments-engine/src/routes"
+	db "github.com/OMODON-ETEMI/distributed-payments-engine/cmd/database/gen"
+	"github.com/OMODON-ETEMI/distributed-payments-engine/cmd/internal/messaging/consumer"
+	"github.com/OMODON-ETEMI/distributed-payments-engine/cmd/internal/outbox"
+	"github.com/OMODON-ETEMI/distributed-payments-engine/cmd/internal/services"
+	internal "github.com/OMODON-ETEMI/distributed-payments-engine/cmd/internal/utilities"
+	"github.com/OMODON-ETEMI/distributed-payments-engine/cmd/routes"
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
@@ -43,7 +45,7 @@ func StartWithdrawalKafkWorker(ctx context.Context, api *routes.ApiConfig, consu
 			continue
 		}
 
-		if err := api.ProcessWithdrawalMessage(ctx, msg); err != nil {
+		if err := internal.ProcessWithdrawalMessage(ctx, api.Db.Queries, msg); err != nil {
 			log.Printf("Failed to process message at offset %v: %v", msg.TopicPartition.Offset, err)
 			continue
 		}
@@ -56,8 +58,8 @@ func StartWithdrawalKafkWorker(ctx context.Context, api *routes.ApiConfig, consu
 	}
 }
 
-func StartdepositKafkWorker(ctx context.Context, api *routes.ApiConfig, consumer *consumer.KafkaConsumer) {
-	topic := "deposite.transfer"
+func StartDepositKafkaWorker(ctx context.Context, api *routes.ApiConfig, consumer *consumer.KafkaConsumer) {
+	topic := "deposit.transfer"
 
 	if err := consumer.Subscribe(topic); err != nil {
 		log.Fatalf("Failed to subscribe to Kafka topic: %v", err)
@@ -75,7 +77,7 @@ func StartdepositKafkWorker(ctx context.Context, api *routes.ApiConfig, consumer
 			continue
 		}
 
-		if err := api.ProcessDepositeMessage(ctx, msg); err != nil {
+		if err := internal.ProcessDepositMessage(ctx, api.Db.Queries, msg); err != nil {
 			log.Printf("Failed to process message at offset %v: %v", msg.TopicPartition.Offset, err)
 			continue
 		}
@@ -98,15 +100,15 @@ func WebhookProcessor(ctx context.Context, WorkSignal chan struct{}, api *routes
 			var processingErr error
 
 			if w.EventType.String == "withdrawal.webhook" {
-				var webhookData routes.WebhookBody
+				var webhookData internal.WebhookBody
 				if err := json.Unmarshal(w.Payload, &webhookData); err != nil {
 					processingErr = fmt.Errorf("decoding withdrawal webhook: %w", err)
 				} else {
-					api.HandleWebhookLogic(ctx, webhookData, w)
+					services.HandleWebhookLogic(ctx, webhookData, w, api.Db, api.Redis)
 					continue
 				}
-			} else if w.EventType.String == "deposite.transfer" {
-				_, processingErr = routes.DepositeLogic(ctx, w.Payload, api)
+			} else if w.EventType.String == "deposit.transfer" {
+				_, processingErr = services.DepositLogic(ctx, w.Payload, api.Db, api.Redis)
 			}
 
 			// Handle status updates for non-autonomous logic (like Deposits)
