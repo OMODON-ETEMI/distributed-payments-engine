@@ -14,7 +14,6 @@ import (
 	db "github.com/OMODON-ETEMI/distributed-payments-engine/cmd/database/gen"
 	"github.com/confluentinc/confluent-kafka-go/v2/kafka"
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/redis/go-redis/v9"
 	"github.com/shopspring/decimal"
@@ -31,6 +30,7 @@ type JournalLeg struct {
 
 type IdemResult struct {
 	ShouldProceed  bool
+	IsProcessing   bool
 	CachedResponse []byte
 	StatusCode     int
 }
@@ -53,36 +53,51 @@ type DepositParams struct {
 }
 
 // IdemCheck verifies if a request has already been processed using Redis and Postgres.
+// Returns ShouldProceed=true ONLY if this is the first time seeing this key.
+// Handles three cases:
+// 1. First request: Sets Redis lock, returns ShouldProceed=true
+// 2. Concurrent duplicate: Returns cached response if available, else error
+// 3. Retry after completion: Returns cached response
 func IdemCheck(ctx context.Context, queries *db.Queries, rdb *redis.Client, key string, ID string, requestHash string, scope string) (IdemResult, error) {
 	redisKey := fmt.Sprintf("idem:%v:%v", ID, key)
 
+	// Try to acquire lock
+	ok, err := rdb.SetNX(ctx, redisKey, "processing", 5*time.Minute).Result()
+	if err != nil {
+		return IdemResult{}, err
+	}
+
+	// Case 1: Successfully acquired lock - this is a new request
+	if ok {
+		return IdemResult{ShouldProceed: true}, nil
+	}
+
+	// Case 2: Lock already exists - either being processed or already completed
+	// Query DB to check status
 	record, err := queries.GetIdempotencyKeyByScopeAndKey(ctx, db.GetIdempotencyKeyByScopeAndKeyParams{
 		IdempotencyKey: key,
 		Scope:          scope,
 	})
 
-	if err == nil {
-		dbHashString := string(record.RequestHash)
-		if dbHashString != requestHash {
-			return IdemResult{}, fmt.Errorf("idempotency key reuse with different payload")
-		}
-		return IdemResult{
-			ShouldProceed:  false,
-			CachedResponse: record.ResponseBody,
-			StatusCode:     int(record.ResponseCode.Int32),
-		}, nil
-	}
-
-	ok, err := rdb.SetNX(ctx, redisKey, "processing", 1*time.Minute).Result()
 	if err != nil {
-		return IdemResult{}, err
+		// No DB record yet - must be processing but DB insert not yet complete
+		// Return error to force retry with exponential backoff
+		return IdemResult{ShouldProceed: false, IsProcessing: true}, fmt.Errorf("request is being processed, please retry")
 	}
 
-	if !ok {
-		return IdemResult{ShouldProceed: false}, fmt.Errorf("request currently processing")
+	// DB record exists - verify request hash matches
+	dbHashString := string(record.RequestHash)
+	if dbHashString != requestHash {
+		return IdemResult{}, fmt.Errorf("idempotency key reuse with different payload")
 	}
 
-	return IdemResult{ShouldProceed: true}, nil
+	// Record exists - must be completed (ResponseBody would have been set by SaveIdem)
+	// Return cached response for retry
+	return IdemResult{
+		ShouldProceed:  false,
+		CachedResponse: record.ResponseBody,
+		StatusCode:     int(record.ResponseCode.Int32),
+	}, nil
 }
 
 // SaveIdem updates the persistent idempotency record and cleans up the Redis lock.
@@ -96,41 +111,11 @@ func SaveIdem(ctx context.Context, queries *db.Queries, rdb *redis.Client, ID st
 		return err
 	}
 	redisKey := fmt.Sprintf("idem:%v:%v", ID, key)
-	rdb.Del(ctx, redisKey)
-	return nil
-}
-
-// GetOrCreateBalanceProjection ensures a balance projection exists for an account before updating it.
-func GetOrCreateBalanceProjection(ctx context.Context, q *db.Queries, accountID pgtype.UUID, currency, kind string) (db.BalanceProjection, error) {
-	bal, err := q.GetBalanceProjectionForUpdate(ctx, db.GetBalanceProjectionForUpdateParams{
-		AccountID:    accountID,
-		CurrencyCode: currency,
-		BalanceKind:  kind,
-	})
-	if err == nil {
-		return bal, nil
-	}
-	if !errors.Is(err, pgx.ErrNoRows) {
-		return db.BalanceProjection{}, err
-	}
-	zero, _ := StringToNumeric("0.00")
-	err = q.UpsertBalanceProjectionWithExpectedVersion(ctx, db.UpsertBalanceProjectionWithExpectedVersionParams{
-		AccountID:        accountID,
-		CurrencyCode:     currency,
-		BalanceKind:      kind,
-		LedgerBalance:    zero,
-		AvailableBalance: zero,
-		HeldBalance:      zero,
-		LastTxID:         pgtype.UUID{Valid: false},
-		LastLineID:       pgtype.UUID{Valid: false},
-		ExpectedVersion:  0,
-	})
+	err = rdb.Set(ctx, redisKey, "completed", 24*time.Hour).Err()
 	if err != nil {
-		return db.BalanceProjection{}, err
+		return err
 	}
-	return q.GetBalanceProjectionForUpdate(ctx, db.GetBalanceProjectionForUpdateParams{
-		AccountID: accountID, CurrencyCode: currency, BalanceKind: kind,
-	})
+	return nil
 }
 
 func StringtoPgUuid(s string) (pgtype.UUID, error) {

@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math/rand"
 	"net/http"
 	"os"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -69,9 +71,9 @@ func TestPerformance_K16_HighConcurrency(t *testing.T) {
 	accounts := make([]string, 5)
 	for i := 0; i < 5; i++ {
 		accounts[i] = createPerfAccount(t, client, userID, fmt.Sprintf("300%d", i))
-		depositToPerfAccount(t, client, userID, accounts[i], "1000000") // 1M per account
+		depositToPerfAccount(t, client, userID, accounts[i], "7000000") // 7M per account
 	}
-	t.Logf("✓ Setup complete: 5 accounts, 1M each")
+	t.Logf("✓ Setup complete: 5 accounts, 7M each")
 
 	// ─── Performance Test Execution ───────────────────────
 
@@ -85,11 +87,11 @@ func TestPerformance_K16_HighConcurrency(t *testing.T) {
 	var wg sync.WaitGroup
 
 	// Concurrent operations: 16 goroutines hitting 5 accounts
-	for i := 0; i < 8; i++ {
+	for i := 0; i < 16; i++ {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
-			for j := 0; j < 20; j++ { // Reduced from 100 to 20 ops per goroutine (320 total instead of 1600)
+			for j := 0; j < 150; j++ {
 				srcAccountIdx := idx % 5
 				dstAccountIdx := (idx + 1) % 5
 
@@ -97,7 +99,7 @@ func TestPerformance_K16_HighConcurrency(t *testing.T) {
 				destAccount := accounts[dstAccountIdx]
 
 				// Mixed workload: 50% transfers, 30% deposits, 20% withdrawals
-				workloadType := (idx*j + j) % 100
+				workloadType := rand.Intn(100)
 				var startTime time.Time
 				var duration time.Duration
 				var success bool
@@ -137,7 +139,7 @@ func TestPerformance_K16_HighConcurrency(t *testing.T) {
 				results.mu.Unlock()
 
 				// Log anomalies
-				if duration > 500*time.Millisecond {
+				if duration > 10*time.Millisecond {
 					t.Logf("⚠️  Slow response (goroutine %d): %dms - %s", idx, duration.Milliseconds(), errMsg)
 				}
 			}
@@ -259,21 +261,28 @@ func analyzePerformanceResults(t *testing.T, results *PerformanceResults) {
 // ─── Validate Money Integrity ───────────────────────────────────────────
 
 func validateMoneyIntegrity(t *testing.T, client *http.Client, accounts []string) {
-	t.Logf("\n🔐 VALIDATING MONEY INTEGRITY (Zero-Bug Guarantee)")
-	t.Logf("┌────────────────────────────────────────────┐")
+	t.Logf("\n🔐 VALIDATING MONEY INTEGRITY (Double-Entry Ledger Check)")
+	t.Logf("┌─────────────────────────────────────────────────────────┐")
 
-	// totalBalance := int64(0)
+	initialPerAccount := int64(7000000) // 7M per account
+	totalInitial := initialPerAccount * int64(len(accounts))
+	totalActual := int64(0)
+
+	t.Logf("│ Initial: %d accounts × %d NGN = %d NGN", len(accounts), initialPerAccount, totalInitial)
+
+	accountBalances := make(map[string]int64)
+
 	for i, acctID := range accounts {
 		resp, err := client.Get(baseURL + "/v1/account/" + acctID + "/balances")
 		if err != nil {
-			t.Logf("│ ❌ Failed to fetch account %d               │", i)
+			t.Logf("│ ❌ Account %d: Failed to fetch", i)
 			continue
 		}
 
 		var balList []map[string]interface{}
 		if err := json.NewDecoder(resp.Body).Decode(&balList); err != nil {
 			resp.Body.Close()
-			t.Logf("│ ❌ Parse error for account %d               │", i)
+			t.Logf("│ ❌ Account %d: Parse error", i)
 			continue
 		}
 		resp.Body.Close()
@@ -281,13 +290,41 @@ func validateMoneyIntegrity(t *testing.T, client *http.Client, accounts []string
 		if len(balList) > 0 {
 			availableObj := balList[0]["available_balance"].(map[string]interface{})
 			amountStr := availableObj["amount"].(string)
-			// Simple integer math for integrity check
-			t.Logf("│ Account %d: %s NGN                   │", i, amountStr)
+
+			// Parse decimal balance (handle "7105100.00000000" format)
+			// Strip decimals and parse as integer
+			parts := strings.Split(amountStr, ".")
+			wholePart := parts[0]
+			amount, err := strconv.ParseInt(wholePart, 10, 64)
+			if err != nil {
+				t.Logf("│ ❌ Account %d: Failed to parse amount %s", i, amountStr)
+				continue
+			}
+			accountBalances[acctID] = amount
+			totalActual += amount
+
+			t.Logf("│ Account %d: %s NGN", i, amountStr)
 		}
 	}
 
-	t.Logf("└────────────────────────────────────────────┘")
-	t.Logf("✅ All balances accounted for - Ledger Balanced\n")
+	variance := totalInitial - totalActual
+	variancePercent := (float64(variance) / float64(totalInitial)) * 100
+
+	t.Logf("├─────────────────────────────────────────────────────────┤")
+	t.Logf("│ Total Initial:  %d NGN", totalInitial)
+	t.Logf("│ Total Actual:   %d NGN", totalActual)
+	t.Logf("│ Variance:       %d NGN (%.2f%%)", variance, variancePercent)
+	t.Logf("├─────────────────────────────────────────────────────────┤")
+
+	if variance == 0 {
+		t.Logf("│ ✅ PERFECT LEDGER BALANCE - Zero variance")
+	} else if variance > 0 && variancePercent < 5 {
+		t.Logf("│ ⚠️  Minor variance (%.2f%% - acceptable for async ops)", variancePercent)
+	} else {
+		t.Logf("│ ❌ LEDGER MISMATCH - %d NGN unaccounted for!", variance)
+	}
+
+	t.Logf("└─────────────────────────────────────────────────────────┘\n")
 }
 
 // ─── Utility Functions ─────────────────────────────────────────────────
@@ -418,6 +455,7 @@ func depositToPerfAccount(t *testing.T, client *http.Client, userID string, acct
 	resp.Body.Close()
 
 	// Wait for balance to update (async via Kafka)
+	expectedAmount, _ := strconv.ParseInt(amount, 10, 64)
 	maxRetries := 50
 	for i := 0; i < maxRetries; i++ {
 		resp, _ := client.Get(baseURL + "/v1/account/" + acctID + "/balances")
@@ -430,7 +468,13 @@ func depositToPerfAccount(t *testing.T, client *http.Client, userID string, acct
 		resp.Body.Close()
 
 		if len(balList) > 0 {
-			return
+			availableObj := balList[0]["available_balance"].(map[string]interface{})
+			amountStr := availableObj["amount"].(string)
+			actualAmount, _ := strconv.ParseInt(amountStr, 10, 64)
+			// Wait until balance reflects the deposit
+			if actualAmount >= expectedAmount {
+				return
+			}
 		}
 		time.Sleep(50 * time.Millisecond)
 	}

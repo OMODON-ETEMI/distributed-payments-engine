@@ -61,9 +61,15 @@ func DepositLogic(ctx context.Context, payload []byte, d *database.Db, rdb *redi
 	memo := pgtype.Text{String: params.Memo, Valid: params.Memo != ""}
 	check, err := internal.IdemCheck(ctx, d.Queries, rdb, params.IdempotencyKeyID, params.CustomerID, requestHash, "deposit_create")
 	if err != nil {
+		if check.IsProcessing {
+			return nil, fmt.Errorf("429: Another concurrent thread is still processing this request, please retry later")
+		}
 		return nil, fmt.Errorf("Error checking idempotency key: %v", err)
 	}
 	if !check.ShouldProceed {
+		if check.CachedResponse == nil {
+			return nil, fmt.Errorf("received empty cached response for completed transaction")
+		}
 		var cachedData internal.TransferResponse
 		err := json.Unmarshal(check.CachedResponse, &cachedData)
 		if err != nil {
@@ -95,11 +101,18 @@ func DepositLogic(ctx context.Context, payload []byte, d *database.Db, rdb *redi
 		}
 
 		destUuid, _ := internal.StringtoPgUuid(params.DestinationAccountID)
-		destAcct, err := q.GetAccountByIDForUpdate(ctx, destUuid)
+		accountIds := []pgtype.UUID{systemSettleAcct.ID, destUuid}
+
+		accountsData, err := q.GetAccountsForUpdateOrderedByID(ctx, accountIds)
 		if err != nil {
-			return fmt.Errorf("Error looking up destination account: %v", err)
+			return fmt.Errorf("Error locking Accouints for Deposit: err")
 		}
 
+		Accounts := make(map[pgtype.UUID]db.Account)
+		for _, acct := range accountsData {
+			Accounts[acct.ID] = acct
+		}
+		destAcct := Accounts[destUuid]
 		if destAcct.Status != "active" {
 			return fmt.Errorf("destination account is not active")
 		}
@@ -171,15 +184,19 @@ func DepositLogic(ctx context.Context, payload []byte, d *database.Db, rdb *redi
 		if err != nil {
 			return fmt.Errorf("Error Marking journal transaction: %v", err)
 		}
-		balance, err := internal.GetOrCreateBalanceProjection(
-			ctx, q,
-			destAcct.ID,
-			params.CurrencyCode,
-			"available",
-		)
+		balances, err := q.GetBalancesProjectionForUpdateOrderedByID(ctx, db.GetBalancesProjectionForUpdateOrderedByIDParams{
+			AccountID:    accountIds,
+			CurrencyCode: destAcct.CurrencyCode,
+			BalanceKind:  "available",
+		})
 		if err != nil {
-			return fmt.Errorf("getting balance: %w", err)
+			return fmt.Errorf("Error getting balance: %w", err)
 		}
+		BalanceProjection := make(map[pgtype.UUID]db.BalanceProjection)
+		for _, bal := range balances {
+			BalanceProjection[bal.AccountID] = bal
+		}
+		balance := BalanceProjection[destAcct.ID]
 		destLedger, _ := decimal.NewFromString(internal.NumericToString(balance.LedgerBalance))
 		destHeld, _ := decimal.NewFromString(internal.NumericToString(balance.HeldBalance))
 		amt, _ := decimal.NewFromString(internal.NumericToString(amount))

@@ -3,6 +3,9 @@ INSERT INTO idempotency_keys (
   idempotency_key, scope, request_hash, response_code, response_body, locked_at, expires_at
 )
 VALUES (@idempotency_key, @scope, @request_hash::bytea, @response_code, @response_body::jsonb, @locked_at::timestamptz, @expires_at::timestamptz)
+ON CONFLICT (scope, idempotency_key) DO UPDATE SET
+  locked_at = EXCLUDED.locked_at,
+  expires_at = EXCLUDED.expires_at
 RETURNING id, idempotency_key, scope, request_hash, response_code, response_body, locked_at, expires_at, created_at, updated_at;
 
 -- name: GetIdempotencyKeyByScopeAndKey :one

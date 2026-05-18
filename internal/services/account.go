@@ -7,13 +7,14 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/OMODON-ETEMI/distributed-payments-engine/cmd/database"
 	db "github.com/OMODON-ETEMI/distributed-payments-engine/cmd/database/gen"
 	internal "github.com/OMODON-ETEMI/distributed-payments-engine/internal/utilities"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-func CreateAccount(ctx context.Context, params internal.AccountParameters, queries *db.Queries) (*internal.AccountResponse, error) {
+func CreateAccount(ctx context.Context, params internal.AccountParameters, d *database.Db, queries *db.Queries) (*internal.AccountResponse, error) {
 	// idempotency: prefer existing by external_ref, fallback to account_number
 	if params.ExternalRef != "" {
 		existing, err := queries.GetAccountByExternalRef(ctx, params.ExternalRef)
@@ -51,21 +52,44 @@ func CreateAccount(ctx context.Context, params internal.AccountParameters, queri
 
 	openedAt := pgtype.Timestamptz{Time: time.Now().UTC(), Valid: true}
 
-	account, err := queries.CreateAccount(ctx, db.CreateAccountParams{
-		CustomerID:       customerID,
-		ExternalRef:      params.ExternalRef,
-		AccountNumber:    params.AccountNumber,
-		AccountType:      params.AccountType,
-		Status:           params.Status,
-		CurrencyCode:     params.CurrencyCode,
-		LedgerNormalSide: params.LedgerNormalSide,
-		Metadata:         metadataBytes,
-		OpenedAt:         openedAt,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("error creating Account: %w", err)
-	}
+	var account db.Account
 
+	err = d.ExecTx(ctx, func(q *db.Queries) error {
+		account, err = queries.CreateAccount(ctx, db.CreateAccountParams{
+			CustomerID:       customerID,
+			ExternalRef:      params.ExternalRef,
+			AccountNumber:    params.AccountNumber,
+			AccountType:      params.AccountType,
+			Status:           params.Status,
+			CurrencyCode:     params.CurrencyCode,
+			LedgerNormalSide: params.LedgerNormalSide,
+			Metadata:         metadataBytes,
+			OpenedAt:         openedAt,
+		})
+		if err != nil {
+			return err
+		}
+		zero, _ := internal.StringToNumeric("0.00")
+		err = q.UpsertBalanceProjectionWithExpectedVersion(ctx, db.UpsertBalanceProjectionWithExpectedVersionParams{
+			AccountID:        account.ID,
+			CurrencyCode:     account.CurrencyCode,
+			BalanceKind:      "available",
+			LedgerBalance:    zero,
+			AvailableBalance: zero,
+			HeldBalance:      zero,
+			LastTxID:         pgtype.UUID{Valid: false},
+			LastLineID:       pgtype.UUID{Valid: false},
+			ExpectedVersion:  0,
+		})
+		if err != nil {
+			return err
+		}
+		return nil
+	})
+
+	if err != nil {
+		return nil, err
+	}
 	resp := internal.AccountResponseObject(account)
 	return &resp, nil
 }

@@ -7,6 +7,7 @@ services:
       POSTGRES_DB: ${DB_NAME}
       POSTGRES_USER: ${DB_USER}
       POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_POOL_SIZE: ${DB_CONNECTION_POOL_SIZE}
     ports:
       - "${DB_PORT}:5432"
     volumes:
@@ -85,6 +86,7 @@ services:
       POSTGRES_DB: distributed_payments_test
       POSTGRES_USER: ${DB_USER}
       POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_POOL_SIZE: ${DB_CONNECTION_POOL_SIZE}
     restart: unless-stopped
     ports:
       - "5433:5432"

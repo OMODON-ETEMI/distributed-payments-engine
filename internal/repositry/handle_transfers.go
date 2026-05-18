@@ -30,6 +30,9 @@ func HandleTransferFailed(ctx context.Context, data json.RawMessage, d *database
 
 	check, err := internal.IdemCheck(ctx, d.Queries, rdb, transferData.Reference, transferData.Status, requestHash, "transfer_success")
 	if err != nil {
+		if check.IsProcessing {
+			return fmt.Errorf("429: Another concurrent thread is still processing this request, please retry later")
+		}
 		return fmt.Errorf("Error checking idempotency key: %v", err)
 	}
 	if !check.ShouldProceed {
@@ -71,14 +74,23 @@ func HandleTransferFailed(ctx context.Context, data json.RawMessage, d *database
 			return fmt.Errorf("Error releasing Hold: %v", err)
 		}
 
-		balance, err := internal.GetOrCreateBalanceProjection(
-			ctx, q,
-			trf.SourceAccountID,
-			trf.CurrencyCode,
-			"available",
-		)
+		accountIds := []pgtype.UUID{trf.SourceAccountID}
+		// 3. Lock balance projection
+		balances, err := q.GetBalancesProjectionForUpdateOrderedByID(ctx, db.GetBalancesProjectionForUpdateOrderedByIDParams{
+			AccountID:    accountIds,
+			CurrencyCode: trf.CurrencyCode,
+			BalanceKind:  "available",
+		})
 		if err != nil {
-			return fmt.Errorf("getting balance: %w", err)
+			return fmt.Errorf("Error getting balance: %w", err)
+		}
+		BalanceProjection := make(map[pgtype.UUID]db.BalanceProjection)
+		for _, bal := range balances {
+			BalanceProjection[bal.AccountID] = bal
+		}
+		balance := BalanceProjection[trf.SourceAccountID]
+		if err != nil {
+			return fmt.Errorf("Error getting balance: %w", err)
 		}
 		// Balance: available ↑, held ↓, ledger unchanged
 		heldDecimal, _ := decimal.NewFromString(internal.NumericToString(balance.HeldBalance))
@@ -163,10 +175,19 @@ func HandleTransferSuccess(ctx context.Context, data json.RawMessage, d *databas
 	// zero, _ := StringToNumeric("0.00")
 	check, err := internal.IdemCheck(ctx, d.Queries, rdb, transferData.Reference, transferData.Status, requestHash, transferData.Status)
 	if err != nil {
+		if check.IsProcessing {
+			return fmt.Errorf("429: Another concurrent thread is still processing this request, please retry later")
+		}
 		return fmt.Errorf("Error checking idempotency key: %v", err)
 	}
 	if !check.ShouldProceed {
-		return nil
+		if check.CachedResponse == nil {
+			return fmt.Errorf("received empty cached response for completed transaction")
+		}
+		var cachedData internal.TransferResponse
+		if err := json.Unmarshal(check.CachedResponse, &cachedData); err != nil {
+			return fmt.Errorf("failed to unmarshal cached response: %w", err)
+		}
 	}
 
 	idempkey, err := d.Queries.CreateIdempotencyKey(ctx, db.CreateIdempotencyKeyParams{
@@ -202,13 +223,29 @@ func HandleTransferSuccess(ctx context.Context, data json.RawMessage, d *databas
 			return fmt.Errorf("Error Getting Hold: %w", err)
 		}
 
+		settlementAcct, err := q.GetAccountByExternalRef(ctx, "system_settlement_ngn")
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return fmt.Errorf("System settlement account not found")
+			}
+			return fmt.Errorf("Error looking up system settlement account: %v", err)
+		}
+
+		accountIds := []pgtype.UUID{trf.SourceAccountID, settlementAcct.ID}
 		// 3. Lock balance projection
-		balance, err := internal.GetOrCreateBalanceProjection(
-			ctx, q,
-			trf.SourceAccountID,
-			trf.CurrencyCode,
-			"available",
-		)
+		balances, err := q.GetBalancesProjectionForUpdateOrderedByID(ctx, db.GetBalancesProjectionForUpdateOrderedByIDParams{
+			AccountID:    accountIds,
+			CurrencyCode: trf.CurrencyCode,
+			BalanceKind:  "available",
+		})
+		if err != nil {
+			return fmt.Errorf("Error getting balance: %w", err)
+		}
+		BalanceProjection := make(map[pgtype.UUID]db.BalanceProjection)
+		for _, bal := range balances {
+			BalanceProjection[bal.AccountID] = bal
+		}
+		balance := BalanceProjection[trf.SourceAccountID]
 		if err != nil {
 			return fmt.Errorf("Error getting balance: %w", err)
 		}
@@ -228,14 +265,6 @@ func HandleTransferSuccess(ctx context.Context, data json.RawMessage, d *databas
 		})
 		if err != nil {
 			return fmt.Errorf("Error Creating Journal transaction %v", err)
-		}
-
-		settlementAcct, err := q.GetAccountByExternalRef(ctx, "system_settlement_ngn")
-		if err != nil {
-			if errors.Is(err, pgx.ErrNoRows) {
-				return fmt.Errorf("System settlement account not found")
-			}
-			return fmt.Errorf("Error looking up system settlement account: %v", err)
 		}
 
 		// 5. Journal lines — actual debit of customer, credit settlement

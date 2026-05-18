@@ -36,7 +36,7 @@ func (api *ApiConfig) HandleCreateAccount(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	account, err := services.CreateAccount(r.Context(), params, api.Db.Queries)
+	account, err := services.CreateAccount(r.Context(), params, api.Db, api.Db.Queries)
 	if err != nil {
 		internal.RespondWithError(w, 500, err.Error())
 		return

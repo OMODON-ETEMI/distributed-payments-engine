@@ -41,6 +41,8 @@ type Querier interface {
 	GetAccountByIDForUpdate(ctx context.Context, id pgtype.UUID) (Account, error)
 	GetAccountByIDForUpdateSkipLocked(ctx context.Context, id pgtype.UUID) (Account, error)
 	GetAccountByNumber(ctx context.Context, accountNumber string) (Account, error)
+	// Ordered account locking: prevents deadlock by always acquiring locks in the same order
+	GetAccountsForUpdateOrderedByID(ctx context.Context, accountIds []pgtype.UUID) ([]Account, error)
 	GetActiveHoldByTransferRequestID(ctx context.Context, transferRequestID pgtype.UUID) (FundsHold, error)
 	GetActiveHoldsForAccount(ctx context.Context, accountID pgtype.UUID) ([]FundsHold, error)
 	GetBalanceProjection(ctx context.Context, arg GetBalanceProjectionParams) (BalanceProjection, error)
@@ -50,6 +52,8 @@ type Querier interface {
 	// balance projections & helpers
 	// Queries to compute, read and upsert balance_projections reliably.
 	GetBalancesForAccount(ctx context.Context, accountID pgtype.UUID) ([]GetBalancesForAccountRow, error)
+	// Ordered Balance locking: prevents deadlock by always acquiring locks in the same order
+	GetBalancesProjectionForUpdateOrderedByID(ctx context.Context, arg GetBalancesProjectionForUpdateOrderedByIDParams) ([]BalanceProjection, error)
 	GetCustomerByExternalRef(ctx context.Context, externalRef string) (Customer, error)
 	GetCustomerByID(ctx context.Context, id pgtype.UUID) (Customer, error)
 	GetIdempotencyKeyByID(ctx context.Context, id pgtype.UUID) (IdempotencyKey, error)

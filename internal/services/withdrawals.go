@@ -77,9 +77,15 @@ func WithdrawalLogic(ctx context.Context, payload []byte, d *database.Db, rdb *r
 
 	check, err := internal.IdemCheck(ctx, d.Queries, rdb, params.IdempotencyKeyID, params.CustomerID, requestHash, "withdraw_create")
 	if err != nil {
+		if check.IsProcessing {
+			return nil, fmt.Errorf("429: Another concurrent thread is still processing this request, please retry later")
+		}
 		return nil, fmt.Errorf("error checking idempotency key: %v", err)
 	}
 	if !check.ShouldProceed {
+		if check.CachedResponse == nil {
+			return nil, fmt.Errorf("received empty cached response for completed transaction")
+		}
 		var cachedData internal.WithdrawalResponse
 		if err := json.Unmarshal(check.CachedResponse, &cachedData); err != nil {
 			return nil, fmt.Errorf("failed to unmarshal cached response")
@@ -115,10 +121,20 @@ func WithdrawalLogic(ctx context.Context, payload []byte, d *database.Db, rdb *r
 			return fmt.Errorf("error looking up system settlement account: %v", err)
 		}
 
-		balance, err := internal.GetOrCreateBalanceProjection(ctx, q, sourceAcct.ID, params.CurrencyCode, "available")
+		accountIds := []pgtype.UUID{sourceAccount.ID, settlement.ID}
+		balances, err := q.GetBalancesProjectionForUpdateOrderedByID(ctx, db.GetBalancesProjectionForUpdateOrderedByIDParams{
+			AccountID:    accountIds,
+			CurrencyCode: sourceAccount.CurrencyCode,
+			BalanceKind:  "available",
+		})
 		if err != nil {
-			return fmt.Errorf("getting balance: %w", err)
+			return fmt.Errorf("Error getting balance: %w", err)
 		}
+		BalanceProjection := make(map[pgtype.UUID]db.BalanceProjection)
+		for _, bal := range balances {
+			BalanceProjection[bal.AccountID] = bal
+		}
+		balance := BalanceProjection[sourceAccount.ID]
 
 		avail, _ := decimal.NewFromString(internal.NumericToString(balance.AvailableBalance))
 		amt, _ := decimal.NewFromString(internal.NumericToString(amount))

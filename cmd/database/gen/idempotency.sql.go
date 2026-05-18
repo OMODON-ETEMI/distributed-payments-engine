@@ -16,6 +16,9 @@ INSERT INTO idempotency_keys (
   idempotency_key, scope, request_hash, response_code, response_body, locked_at, expires_at
 )
 VALUES ($1, $2, $3::bytea, $4, $5::jsonb, $6::timestamptz, $7::timestamptz)
+ON CONFLICT (scope, idempotency_key) DO UPDATE SET
+  locked_at = EXCLUDED.locked_at,
+  expires_at = EXCLUDED.expires_at
 RETURNING id, idempotency_key, scope, request_hash, response_code, response_body, locked_at, expires_at, created_at, updated_at
 `
 

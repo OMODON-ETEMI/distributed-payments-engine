@@ -21,9 +21,15 @@ func CreateTransfer(ctx context.Context, params internal.TransferParams, d *data
 	// 1. Idempotency Check
 	check, err := internal.IdemCheck(ctx, d.Queries, rdb, params.IdempotencyKeyID, params.CustomerID, requestHash, "transfer_create")
 	if err != nil {
+		if check.IsProcessing {
+			return nil, fmt.Errorf("429: Another concurrent thread is still processing this request, please retry later")
+		}
 		return nil, fmt.Errorf("error checking idempotency key: %w", err)
 	}
 	if !check.ShouldProceed {
+		if check.CachedResponse == nil {
+			return nil, fmt.Errorf("received empty cached response for completed transaction")
+		}
 		var cachedData internal.TransferResponse
 		if err := json.Unmarshal(check.CachedResponse, &cachedData); err != nil {
 			return nil, fmt.Errorf("failed to unmarshal cached response: %w", err)
@@ -92,37 +98,44 @@ func CreateTransfer(ctx context.Context, params internal.TransferParams, d *data
 	// 4. Execute Transaction
 	err = d.ExecTx(ctx, func(q *db.Queries) error {
 		// Lock accounts
-		sourceAcct, err := q.GetAccountByIDForUpdate(ctx, sourceAccountID)
-		if err != nil {
-			return fmt.Errorf("error locking source account: %w", err)
-		}
-		if sourceAcct.Status != "active" {
-			return fmt.Errorf("source account is not active")
-		}
-
-		destinationAcct, err := q.GetAccountByIDForUpdate(ctx, destAccountID)
-		if err != nil {
-			return fmt.Errorf("error locking destination account: %w", err)
-		}
-
 		systemAcct, err := q.GetAccountByExternalRef(ctx, "system_fee_revenue_ngn")
 		if err != nil {
 			return fmt.Errorf("error looking up system fee account: %w", err)
 		}
-		systemFeeAcct, err := q.GetAccountByIDForUpdate(ctx, systemAcct.ID)
+		accountIDs := []pgtype.UUID{sourceAccountID, destAccountID, systemAcct.ID}
+		accounts, err := q.GetAccountsForUpdateOrderedByID(ctx, accountIDs)
 		if err != nil {
-			return fmt.Errorf("error locking system fee account: %w", err)
+			return fmt.Errorf("error locking accounts: %w", err)
 		}
+
+		accountMap := make(map[pgtype.UUID]db.Account)
+		for _, acct := range accounts {
+			accountMap[acct.ID] = acct
+		}
+
+		sourceAcct := accountMap[sourceAccountID]
+		destinationAcct := accountMap[destAccountID]
+		systemFeeAcct := accountMap[systemAcct.ID]
 
 		if sourceAcct.CurrencyCode != params.CurrencyCode || destinationAcct.CurrencyCode != params.CurrencyCode {
 			return fmt.Errorf("currency code mismatch")
 		}
 
 		// Check Balance
-		balance, err := internal.GetOrCreateBalanceProjection(ctx, q, sourceAcct.ID, sourceAcct.CurrencyCode, "available")
+		balances, err := q.GetBalancesProjectionForUpdateOrderedByID(ctx, db.GetBalancesProjectionForUpdateOrderedByIDParams{
+			AccountID:    accountIDs,
+			CurrencyCode: destinationAcct.CurrencyCode,
+			BalanceKind:  "available",
+		})
 		if err != nil {
-			return fmt.Errorf("getting source balance: %w", err)
+			return fmt.Errorf("Error getting balance: %w", err)
 		}
+		BalanceProjection := make(map[pgtype.UUID]db.BalanceProjection)
+		for _, bal := range balances {
+			BalanceProjection[bal.AccountID] = bal
+		}
+		balance := BalanceProjection[sourceAcct.ID]
+		destBalance := BalanceProjection[destinationAcct.ID]
 
 		amtDec, _ := decimal.NewFromString(internal.NumericToString(amount))
 		feeDec, _ := decimal.NewFromString(internal.NumericToString(feeAmount))
@@ -131,11 +144,6 @@ func CreateTransfer(ctx context.Context, params internal.TransferParams, d *data
 
 		if avail.Cmp(needed) < 0 {
 			return fmt.Errorf("insufficient funds")
-		}
-
-		destBalance, err := internal.GetOrCreateBalanceProjection(ctx, q, destinationAcct.ID, destinationAcct.CurrencyCode, "available")
-		if err != nil {
-			return fmt.Errorf("getting destination balance: %w", err)
 		}
 
 		// Create Request
